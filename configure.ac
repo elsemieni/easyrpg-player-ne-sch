@@ -65,6 +65,11 @@ AC_ARG_WITH([libmpg123],[AS_HELP_STRING([--without-libmpg123],
 AS_IF([test "x$with_libmpg123" != "xno"],[
 	PKG_CHECK_MODULES([MPG123],[libmpg123],[AC_DEFINE(HAVE_MPG123,[1],[Enable improved MP3 support provided by libmpg123])],[auto_mpg123=0])
 ])
+AC_ARG_WITH([fluidsynth],[AS_HELP_STRING([--with-fluidsynth],
+	[Enable Midi support provided by fluidsynth @<:@default=no@:>@])])
+AS_IF([test "x$with_fluidsynth" = "xyes"],[
+	PKG_CHECK_MODULES([FLUIDSYNTH],[fluidsynth],[AC_DEFINE(HAVE_FLUIDSYNTH,[1],[Enable Midi support provided by fluidsynth])],[auto_fluidsynth=0])
+])
 AC_ARG_WITH([libwildmidi],[AS_HELP_STRING([--without-libwildmidi],
 	[Disable Midi support provided by libwildmidi. @<:@default=auto@:>@])])
 AS_IF([test "x$with_libwildmidi" != "xno"],[

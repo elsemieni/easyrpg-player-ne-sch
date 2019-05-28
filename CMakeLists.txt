@@ -56,6 +56,8 @@ add_library(${PROJECT_NAME}
 	src/decoder_libsndfile.h
 	src/decoder_mpg123.cpp
 	src/decoder_mpg123.h
+	src/decoder_fluidsynth.cpp
+	src/decoder_fluidsynth.h
 	src/decoder_oggvorbis.cpp
 	src/decoder_oggvorbis.h
 	src/decoder_opus.cpp
@@ -505,6 +507,7 @@ else()
 endif()
 
 CMAKE_DEPENDENT_OPTION(PLAYER_WITH_MPG123 "Play MP3 audio with libmpg123" ON "PLAYER_HAS_AUDIO" OFF)
+CMAKE_DEPENDENT_OPTION(PLAYER_WITH_FLUIDSYNTH "(Netherware hack) Use fluidsynth for MIDI playing" ON "PLAYER_HAS_AUDIO" OFF)
 CMAKE_DEPENDENT_OPTION(PLAYER_WITH_LIBSNDFILE "Play WAV audio with libsndfile" ON "PLAYER_HAS_AUDIO" OFF)
 CMAKE_DEPENDENT_OPTION(PLAYER_WITH_OGGVORBIS "Play Ogg Vorbis audio with libvorbis" ON "PLAYER_HAS_AUDIO" OFF)
 CMAKE_DEPENDENT_OPTION(PLAYER_WITH_OPUS "Play Opus audio with opusfile" ON "PLAYER_HAS_AUDIO" OFF)
@@ -555,6 +558,12 @@ if(${PLAYER_AUDIO_BACKEND} MATCHES "^SDL.*$")
 		CONDITION PLAYER_WITH_MPG123
 		DEFINITION HAVE_MPG123
 		TARGET mpg123::mpg123)
+
+	# fluidsynth
+	player_find_package(NAME FluidSynth
+			CONDITION PLAYER_WITH_FLUIDSYNTH
+			DEFINITION HAVE_FLUIDSYNTH
+			TARGET FluidSynth::FluidSynth)
 
 	# libsndfile
 	player_find_package(NAME LibSndFile
@@ -754,6 +763,12 @@ if(${PLAYER_AUDIO_BACKEND} MATCHES "^SDL2.*$")
 		message(STATUS "MP3 playback: SDL2_mixer")
 	else()
 		message(STATUS "MP3 playback: None")
+	endif()
+
+	if(FLUIDSYNTH_FOUND)
+		message(STATUS "MIDI backend (Netherware hack): fluidsynth ")
+	else()
+		message(STATUS "MIDI backend (Netherware hack): no fluidsynth ")
 	endif()
 
 	if(VORBISFILE_FOUND)

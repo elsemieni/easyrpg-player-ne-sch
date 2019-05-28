@@ -38,6 +38,10 @@ libeasyrpg_player_a_SOURCES = \
 	src/cache.h \
 	src/color.cpp \
 	src/color.h \
+	#Netherware fluidsynth support =======================================
+	src/decoder_fluidsynth.cpp \
+    src/decoder_fluidsynth.h \
+    #=======================================
 	src/decoder_libsndfile.cpp \
 	src/decoder_libsndfile.h \
 	src/decoder_mpg123.cpp \
@@ -360,6 +364,7 @@ libeasyrpg_player_a_CXXFLAGS = \
 	$(PNG_CFLAGS) \
 	$(ZLIB_CFLAGS) \
 	$(MPG123_CFLAGS) \
+	$(FLUIDSYNTH_CFLAGS) \ #netherware
 	$(WILDMIDI_CFLAGS) \
 	$(OGGVORBIS_CFLAGS) \
 	$(OPUS_CFLAGS) \
@@ -379,6 +384,7 @@ easyrpg_player_LDADD = libeasyrpg-player.a \
 	$(PNG_LIBS) \
 	$(ZLIB_LIBS) \
 	$(MPG123_LIBS) \
+	$(FLUIDSYNTH_LIBS) \ #netherware
 	$(WILDMIDI_LIBS) \
 	$(OGGVORBIS_LIBS) \
 	$(OPUS_LIBS) \

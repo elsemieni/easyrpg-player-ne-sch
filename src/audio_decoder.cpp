@@ -25,6 +25,7 @@
 #include "utils.h"
 
 #include "decoder_fmmidi.h"
+#include "decoder_fluidsynth.h"
 #include "decoder_mpg123.h"
 #include "decoder_oggvorbis.h"
 #include "decoder_opus.h"
@@ -143,6 +144,22 @@ std::unique_ptr<AudioDecoder> AudioDecoder::Create(FILE* file, const std::string
 
 	// Try to use MIDI decoder, use fallback(s) if available
 	if (!strncmp(magic, "MThd", 4)) {
+#ifdef HAVE_FLUIDSYNTH
+		//Netherware fluidsynth
+		static bool fluidsynth_works = true;
+		if (fluidsynth_works) {
+			auto mididec = std::unique_ptr<AudioDecoder>(new FluidSynthDecoder());
+			if (mididec->WasInited()) {
+#  ifdef USE_AUDIO_RESAMPLER
+				mididec = std::unique_ptr<AudioResampler>(new AudioResampler(std::move(mididec)));
+#  endif
+				return mididec;
+			} else {
+				fluidsynth_works = false;
+				Output::Debug("FluidSynth Failed: %s", mididec->GetError().c_str());
+			}
+		}
+#endif
 #ifdef HAVE_WILDMIDI
 		static bool wildmidi_works = true;
 		if (wildmidi_works) {
