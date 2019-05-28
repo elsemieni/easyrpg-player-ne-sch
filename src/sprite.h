@@ -21,6 +21,7 @@
 // Headers
 #include "color.h"
 #include "drawable.h"
+#include "memory_management.h"
 #include "rect.h"
 #include "tone.h"
 
@@ -124,7 +125,6 @@ private:
 	BitmapRef bitmap_effects;
 
 	Rect bitmap_effects_src_rect;
-	bool bitmap_effects_valid;
 
 	Tone current_tone;
 	Color current_flash;

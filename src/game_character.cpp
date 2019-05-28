@@ -101,7 +101,7 @@ int Game_Character::GetScreenZ(bool apply_shift) const {
 	int z = 0;
 
 	if (IsFlying()) {
-		z = Priority_EventsAbove;
+		z = Priority_EventsFlying;
 	} else if (GetLayer() == RPG::EventPage::Layers_same) {
 		z = Priority_Player;
 	} else if (GetLayer() == RPG::EventPage::Layers_below) {
@@ -208,6 +208,18 @@ void Game_Character::UpdateAnimation(bool was_moving) {
 			|| (was_moving && GetAnimCount() > stationary_limit)) {
 		IncAnimFrame();
 		return;
+	}
+}
+
+void Game_Character::UpdateFlash() {
+	if (data()->flash_current_level > 0) {
+		if (data()->flash_time_left > 0) {
+			data()->flash_current_level = data()->flash_current_level - (data()->flash_current_level / data()->flash_time_left);
+			--data()->flash_time_left;
+		} else {
+			data()->flash_current_level = 0.0;
+			data()->flash_time_left = 0;
+		}
 	}
 }
 
@@ -801,10 +813,6 @@ void Game_Character::SetVisible(bool visible) {
 	this->visible = visible;
 }
 
-bool Game_Character::IsFlashPending() const {
-	return GetFlashTimeLeft() > 0;
-}
-
 bool Game_Character::IsAnimated() const {
 	auto at = GetAnimationType();
 	return !IsAnimPaused()
@@ -846,9 +854,12 @@ void Game_Character::SetGraphic(const std::string& name, int index) {
 	}
 }
 
-void Game_Character::Flash(Color color, int duration) {
-	SetFlashColor(color);
-	SetFlashTimeLeft(duration);
+void Game_Character::Flash(int r, int g, int b, int power, int frames) {
+	data()->flash_red = r;
+	data()->flash_blue = g;
+	data()->flash_green = b;
+	data()->flash_current_level = power;
+	data()->flash_time_left = frames;
 }
 
 // Gets Character

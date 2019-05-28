@@ -35,15 +35,10 @@ public:
 	Scene_Title();
 
 	void Start() override;
-	void Continue() override;
-	void TransitionIn() override;
-	void Resume() override;
+	void Continue(SceneType prev_scene) override;
+	void TransitionIn(SceneType prev_scene) override;
+	void TransitionOut(SceneType next_scene) override;
 	void Update() override;
-
-	/**
-	 * Loads all databases.
-	 */
-	void LoadDatabase();
 
 	/**
 	 * Creates the background graphic of the scene.
@@ -59,6 +54,14 @@ public:
 	 * Plays the title music.
 	 */
 	void PlayTitleMusic();
+
+	/**
+	 * Checks if game or engine configuration requires usage of title
+	 * graphic and music or not.
+	 *
+	 * @return true when graphic and music are shown
+	 */
+	bool CheckEnableTitleGraphicAndMusic();
 
 	/**
 	 * Checks if there is a player start location.

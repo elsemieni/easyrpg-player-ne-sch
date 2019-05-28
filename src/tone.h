@@ -18,6 +18,8 @@
 #ifndef EP_TONE_H
 #define EP_TONE_H
 
+#include <tuple>
+
 /**
  * Tone class.
  */
@@ -79,5 +81,10 @@ inline bool operator!=(const Tone &l, const Tone& r) {
 	return !(l == r);
 }
 
+inline bool operator<(const Tone &l, const Tone& r) {
+	return
+		std::tie(l.red, l.green, l.blue, l.gray) <
+		std::tie(r.red, r.green, r.blue, r.gray);
+}
 
 #endif

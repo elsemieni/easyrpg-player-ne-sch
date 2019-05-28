@@ -43,8 +43,7 @@ Scene_Title::Scene_Title() {
 
 void Scene_Title::Start() {
 	// Skip background image and music if not used
-	if (Data::system.show_title && !Player::new_game_flag &&
-		!Game_Battle::battle_test.enabled && !Player::hide_title_flag) {
+	if (CheckEnableTitleGraphicAndMusic()) {
 		CreateTitleGraphic();
 		PlayTitleMusic();
 	}
@@ -52,7 +51,7 @@ void Scene_Title::Start() {
 	CreateCommandWindow();
 }
 
-void Scene_Title::Continue() {
+void Scene_Title::Continue(SceneType prev_scene) {
 	if (restart_title_cache) {
 		// Clear the cache when the game returns to the title screen
 		// e.g. by pressing F12, except the Title Load menu
@@ -62,31 +61,33 @@ void Scene_Title::Continue() {
 		Player::ResetGameObjects();
 
 		Start();
+	} else if (prev_scene == Scene::Load && CheckEnableTitleGraphicAndMusic()) {
+		CreateTitleGraphic();
+	}
+
+	if (prev_scene != Scene::Load && !Player::hide_title_flag) {
+		command_window->SetOpenAnimation(8);
 	}
 }
 
-void Scene_Title::TransitionIn() {
+void Scene_Title::TransitionIn(SceneType prev_scene) {
 	if (Game_Battle::battle_test.enabled || !Data::system.show_title || Player::new_game_flag)
 		return;
 
-	if (command_window->GetVisible()) {
-		Scene::TransitionIn();
-	}
-	else if (!Player::hide_title_flag) {
-		Graphics::GetTransition().Init(Transition::TransitionFadeIn, this, 32);
-	} else {
-		Graphics::GetTransition().Init(Transition::TransitionFadeIn, this, 6);
-	}
-}
-
-void Scene_Title::Resume() {
-	if (!Data::system.show_title || Player::new_game_flag)
+	if (prev_scene == Scene::Load || Player::hide_title_flag) {
+		Scene::TransitionIn(prev_scene);
 		return;
-
-	if (command_window) {
-		command_window->SetVisible(true);
 	}
+	Graphics::GetTransition().Init(Transition::TransitionFadeIn, this, 32);
 }
+
+void Scene_Title::TransitionOut(Scene::SceneType next_scene) {
+	Scene::TransitionOut(next_scene);
+
+	// Unload title graphic to save memory
+	title.reset();
+}
+
 void Scene_Title::Update() {
 	if (Game_Battle::battle_test.enabled) {
 		PrepareBattleTest();
@@ -120,15 +121,13 @@ void Scene_Title::Update() {
 
 void Scene_Title::CreateTitleGraphic() {
 	// Load Title Graphic
-	if (!title && !Data::system.title_name.empty()) // No need to recreate Title on Resume
-	{
+	if (!Data::system.title_name.empty()) {
 		title.reset(new Sprite());
 		FileRequestAsync* request = AsyncHandler::RequestFile("Title", Data::system.title_name);
 		request->SetGraphicFile(true);
 		request_id = request->Bind(&Scene_Title::OnTitleSpriteReady, this);
 		request->Start();
-	}
-	else {
+	} else {
 		title.reset(new Sprite());
 		title->SetBitmap(Bitmap::Create(DisplayUi->GetWidth(), DisplayUi->GetHeight(), Color(0, 0, 0, 255)));
 	}
@@ -166,7 +165,7 @@ void Scene_Title::CreateCommandWindow() {
 		command_window->SetBackOpacity(128);
 	}
 
-	command_window->SetVisible(false);
+	command_window->SetVisible(true);
 }
 
 void Scene_Title::PlayTitleMusic() {
@@ -174,6 +173,13 @@ void Scene_Title::PlayTitleMusic() {
 	Game_System::BgmStop();
 	// Play BGM
 	Game_System::BgmPlay(Data::system.title_music);
+}
+
+bool Scene_Title::CheckEnableTitleGraphicAndMusic() {
+	return Data::system.show_title &&
+		!Player::new_game_flag &&
+		!Game_Battle::battle_test.enabled &&
+		!Player::hide_title_flag;
 }
 
 bool Scene_Title::CheckValidPlayerLocation() {

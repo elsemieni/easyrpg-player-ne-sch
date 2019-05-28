@@ -525,15 +525,14 @@ bool Game_Interpreter_Map::CommandEnterHeroName(RPG::EventCommand const& com) { 
 	Game_Temp::hero_name_id = com.parameters[0];
 	Game_Temp::hero_name_charset = com.parameters[1];
 
-	if (com.parameters[2] != 0) {
-		Game_Actor *actor = Game_Actors::GetActor(Game_Temp::hero_name_id);
+	Game_Actor *actor = Game_Actors::GetActor(Game_Temp::hero_name_id);
 
-		if (!actor) {
-			Output::Warning("EnterHeroName: Invalid actor ID %d", Game_Temp::hero_name_id);
-			Game_Temp::hero_name.clear();
-		} else {
-			Game_Temp::hero_name = actor->GetName();
-		}
+	if (!actor) {
+		Output::Error("EnterHeroName: Invalid actor ID %d", Game_Temp::hero_name_id);
+	}
+
+	if (com.parameters[2]) {
+		Game_Temp::hero_name = actor->GetName();
 	} else {
 		Game_Temp::hero_name.clear();
 	}
@@ -633,20 +632,21 @@ bool Game_Interpreter_Map::CommandShowBattleAnimation(RPG::EventCommand const& c
 
 bool Game_Interpreter_Map::CommandFlashSprite(RPG::EventCommand const& com) { // code 11320
 	int event_id = com.parameters[0];
-	Color color(com.parameters[1] * 255 / 31,
-		com.parameters[2] * 255 / 31,
-		com.parameters[3] * 255 / 31,
-		com.parameters[4] * 255 / 31);
+	int r = com.parameters[1];
+	int g = com.parameters[2];
+	int b = com.parameters[3];
+	int p = com.parameters[4];
 
 	int tenths = com.parameters[5];
 	bool wait = com.parameters[6] > 0;
 	Game_Character* event = GetCharacter(event_id);
 
 	if (event != NULL) {
-		event->Flash(color, tenths * DEFAULT_FPS / 10);
+		event->Flash(r, g, b, p, tenths * DEFAULT_FPS / 10);
 
-		if (wait)
+		if (wait) {
 			SetupWait(tenths);
+		}
 	}
 
 	return true;

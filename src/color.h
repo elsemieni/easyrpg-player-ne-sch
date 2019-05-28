@@ -18,8 +18,8 @@
 #ifndef EP_COLOR_H
 #define EP_COLOR_H
 
-// Headers
-#include "system.h"
+#include <cstdint>
+#include <tuple>
 
 /**
  * Color class.
@@ -43,16 +43,6 @@ public:
 	Color(uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha);
 
 	/**
-	 * Equality operator.
-	 */
-	bool operator==(const Color &other) const;
-
-	/**
-	 * Inequality operator.
-	 */
-	bool operator!=(const Color &other) const;
-
-	/**
 	 * Sets all color properties.
 	 *
 	 * @param red red component.
@@ -74,5 +64,34 @@ public:
 	/** Alpha component. */
 	uint8_t alpha;
 };
+
+/**
+ * Create a Color object from RPG_RT flash values [0,31]
+ *
+ * @param r red color
+ * @param g green color
+ * @param b blue color
+ * @param current_level strength of flash
+ */
+inline Color MakeFlashColor(int r, int g, int b, double current_level) {
+	return Color(r * 8, g * 8, b * 8, current_level * 8);
+}
+
+inline bool operator==(const Color &l, const Color& r) {
+	return l.red == r.red
+		   && l.green == r.green
+		   && l.blue == r.blue
+		   && l.alpha == r.alpha;
+}
+
+inline bool operator!=(const Color &l, const Color& r) {
+	return !(l == r);
+}
+
+inline bool operator<(const Color &l, const Color& r) {
+	return
+		std::tie(l.red, l.green, l.blue, l.alpha) <
+		std::tie(r.red, r.green, r.blue, r.alpha);
+}
 
 #endif

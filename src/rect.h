@@ -18,7 +18,7 @@
 #ifndef EP_RECT_H
 #define EP_RECT_H
 
-#include "system.h"
+#include <tuple>
 
 /**
  * Rect.
@@ -39,16 +39,6 @@ public:
 	 * @param height initial height.
 	 */
 	Rect(int x, int y, int width, int height);
-
-	/**
-	 * Equality operator.
-	 */
-	bool operator==(Rect const& other) const;
-
-	/**
-	 * Inequality operator.
-	 */
-	bool operator!=(Rect const& other) const;
 
 	/**
 	 * Sets all rect values simultaneously.
@@ -143,5 +133,22 @@ public:
 	 */
 	void Halve();
 };
+
+inline bool operator==(const Rect &l, const Rect& r) {
+	return l.x == r.x
+		   && l.y == r.y
+		   && l.width == r.width
+		   && l.height == r.height;
+}
+
+inline bool operator!=(const Rect &l, const Rect& r) {
+	return !(l == r);
+}
+
+inline bool operator<(const Rect &l, const Rect& r) {
+	return
+		std::tie(l.x, l.y, l.width, l.height) <
+		std::tie(r.x, r.y, r.width, r.height);
+}
 
 #endif

@@ -15,41 +15,26 @@
  * along with EasyRPG Player. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef EP_SCENE_LOGO_H
-#define EP_SCENE_LOGO_H
+#ifndef EP_AUDIO_LIBRETRO_H
+#define EP_AUDIO_LIBRETRO_H
 
-// Headers
-#include "system.h"
-#include "scene.h"
-#include "sprite.h"
-#include "async_handler.h"
+#if defined(USE_LIBRETRO)
 
-/**
- * Scene Logo class.
- * Displays the shiny EasyRPG logo on startup and inititalizes the game.
- * When the startup directory does not contain a game it loads the Game Browser
- * instead.
- */
-class Scene_Logo : public Scene {
+#include "libretro.h"
+#include "audio_generic.h"
 
+class LibretroAudio : public GenericAudio {
 public:
-	/**
-	 * Constructor.
-	 */
-	Scene_Logo();
+	LibretroAudio();
+	~LibretroAudio();
 
-	void Start() override;
-	void Update() override;
-	void DrawBackground() override;
+	void LockMutex() const override;
+	void UnlockMutex() const override;
 
-private:
-	std::unique_ptr<Sprite> logo;
-	BitmapRef logo_img;
-	int frame_counter;
-
-	void OnIndexReady(FileRequestResult* result);
-	FileRequestBinding request_id;
-	bool async_ready = false;
+	static void EnableAudio(bool enabled);
+	static void AudioThreadCallback();
+	static void SetRetroAudioCallback(retro_audio_sample_batch_t cb);
 };
 
+#endif
 #endif
