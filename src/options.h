@@ -19,7 +19,7 @@
 #define EP_OPTIONS_H
 
 /** Window title to show. */
-#define GAME_TITLE "EasyRPG Player"
+#define GAME_TITLE ""
 
 /** Targeted screen default width. */
 #define SCREEN_TARGET_WIDTH 320
@@ -40,7 +40,7 @@
 #define RUN_FULLSCREEN 0
 
 /** Run game with this magnification factor. */
-#define RUN_ZOOM 2
+#define RUN_ZOOM 3
 
 /**
  * Pause the game process when the player window
@@ -87,7 +87,7 @@
 
 /** Name of the file for output. */
 #ifndef OUTPUT_FILENAME
-#  define OUTPUT_FILENAME "easyrpg_log.txt"
+#  define OUTPUT_FILENAME "sch_log.txt"
 #endif
 
 #define USE_KEYBOARD

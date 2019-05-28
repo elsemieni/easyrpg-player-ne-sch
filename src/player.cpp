@@ -130,7 +130,7 @@ void Player::Init(int argc, char *argv[]) {
 	// Display a nice version string
 	std::stringstream header;
 	std::string addtl_ver(PLAYER_ADDTL);
-	header << "EasyRPG Player " << PLAYER_VERSION;
+	header << "Super Crystal Hunter - EasyRPG Player " << PLAYER_VERSION;
 	if (!addtl_ver.empty())
 		header << " " << addtl_ver;
 	header << " started";
@@ -181,6 +181,9 @@ void Player::Init(int argc, char *argv[]) {
 	Main_Data::Init();
 
 	DisplayUi.reset();
+
+	//netherware fix: Always run in windowed mode
+	window_flag = true;
 
 	if(! DisplayUi) {
 		DisplayUi = BaseUi::CreateUi
@@ -667,7 +670,7 @@ void Player::CreateGameObjects() {
 	std::stringstream title;
 	if (!game_title.empty()) {
 		Output::Debug("Loading game %s", game_title.c_str());
-		title << game_title << " - ";
+		title << game_title << "";
 	} else {
 		Output::Debug("Could not read game title.");
 	}
@@ -682,7 +685,8 @@ void Player::CreateGameObjects() {
 		if (Data::system.ldb_id == 2003) {
 			engine = EngineRpg2k3;
 
-			if (FileFinder::FindDefault("ultimate_rt_eb.dll").empty()) {
+			//if (FileFinder::FindDefault("ultimate_rt_eb.dll").empty()) {
+            if (false) { //netherware fix: always use 2k3e
 				// Heuristic: Detect if game was converted from 2000 to 2003 and
 				// no typical 2003 feature was used at all (breaks .flow e.g.)
 				if (Data::classes.size() == 1 &&

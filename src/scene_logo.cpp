@@ -79,7 +79,7 @@ void Scene_Logo::Update() {
 
 	if (Player::debug_flag ||
 		Game_Battle::battle_test.enabled ||
-		frame_counter == 60 ||
+		frame_counter > 0 ||
 		Input::IsTriggered(Input::DECISION) ||
 		Input::IsTriggered(Input::CANCEL)) {
 

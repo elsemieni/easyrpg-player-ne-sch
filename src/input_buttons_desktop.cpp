@@ -70,10 +70,12 @@ void Input::InitButtons() {
 	buttons[MULTIPLY].push_back(Keys::MULTIPLY);
 	buttons[DIVIDE].push_back(Keys::DIVIDE);
 	buttons[PERIOD].push_back(Keys::PERIOD);
-	buttons[DEBUG_MENU].push_back(Keys::F9);
+	//buttons[DEBUG_MENU].push_back(Keys::F9);
+    buttons[DEBUG_MENU].push_back(Keys::F7);
 	buttons[DEBUG_THROUGH].push_back(Keys::LCTRL);
 	buttons[DEBUG_THROUGH].push_back(Keys::RCTRL);
-	buttons[DEBUG_SAVE].push_back(Keys::F11);
+	//buttons[DEBUG_SAVE].push_back(Keys::F11);
+	buttons[DEBUG_SAVE].push_back(Keys::F8); //Netherware fix: remap buttons
 	buttons[TAKE_SCREENSHOT].push_back(Keys::F10);
 	buttons[TOGGLE_FPS].push_back(Keys::F2);
 	buttons[SHOW_LOG].push_back(Keys::F3);
@@ -81,8 +83,9 @@ void Input::InitButtons() {
 	buttons[TOGGLE_ZOOM].push_back(Keys::F5);
 	buttons[PAGE_UP].push_back(Keys::PGUP);
 	buttons[PAGE_DOWN].push_back(Keys::PGDN);
-	buttons[RESET].push_back(Keys::F12);
-	buttons[FAST_FORWARD].push_back(Keys::F);
+	//buttons[RESET].push_back(Keys::F12);
+	buttons[RESET].push_back(Keys::F9); //Netherware fix: remap buttons
+	//buttons[FAST_FORWARD].push_back(Keys::F);
 
 #if defined(USE_MOUSE) && defined(SUPPORT_MOUSE)
 	buttons[DECISION].push_back(Keys::MOUSE_LEFT);

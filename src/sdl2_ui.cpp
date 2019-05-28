@@ -48,7 +48,13 @@
 #include "player.h"
 #include "bitmap.h"
 
+//netherware fix: include game switches for some event manipulating
+#include "game_switches.h"
+
 #include "audio.h"
+
+//netherware fix : global joystick handler
+SDL_Joystick* NethGloJoystickHandler;
 
 #ifdef SUPPORT_AUDIO
 
@@ -113,13 +119,17 @@ Sdl2Ui::Sdl2Ui(long width, long height, bool fullscreen, int zoom) :
 
 	SetTitle(GAME_TITLE);
 
+	//netherware fix: dejar el handler en la variable global
+	NethGloJoystickHandler = nullptr;
+
 #if (defined(USE_JOYSTICK) && defined(SUPPORT_JOYSTICK)) || (defined(USE_JOYSTICK_AXIS) && defined(SUPPORT_JOYSTICK_AXIS)) || (defined(USE_JOYSTICK_HAT) && defined(SUPPORT_JOYSTICK_HAT))
 	if (SDL_InitSubSystem(SDL_INIT_JOYSTICK) < 0) {
 		Output::Warning("Couldn't initialize joystick. %s", SDL_GetError());
 	}
 
 	SDL_JoystickEventState(1);
-	SDL_JoystickOpen(0);
+	//SDL_JoystickOpen(0);
+	NethGloJoystickHandler = SDL_JoystickOpen(0); //netherware fix: manejar el handler del joystick
 #endif
 
 #if defined(USE_MOUSE) && defined(SUPPORT_MOUSE)
@@ -477,6 +487,33 @@ void Sdl2Ui::ProcessEvent(SDL_Event &evnt) {
 		case SDL_FINGERMOTION:
 			ProcessFingerEvent(evnt);
 			return;
+
+		//netherware fix: conectar joystick
+	    case SDL_JOYDEVICEADDED:
+	        {
+	            //evnt.which = index joystick de cual se agrego
+                SDL_JoyDeviceEvent &evtt = (SDL_JoyDeviceEvent&) evnt;
+                //Output::Warning("SDL_JOYDEVICEADDED %d", evtt.which);
+                if (/*evtt.which == 0 &&*/ !NethGloJoystickHandler) {
+                    NethGloJoystickHandler = SDL_JoystickOpen(0);
+                }
+	        }
+
+	        return;
+
+	    case SDL_JOYDEVICEREMOVED:
+	        {
+                //evnt.which = index joystick de cual se quito
+                SDL_JoyDeviceEvent &evtt = (SDL_JoyDeviceEvent&) evnt;
+                //Output::Warning("SDL_JOYDEVICEREMOVED %d", evtt.which);
+                if (&Game_Switches && Game_Switches.IsValid(2241)) {
+                    Game_Switches.Set(2241, 1);
+                }
+                SDL_JoystickClose(NethGloJoystickHandler);
+                NethGloJoystickHandler = nullptr;
+	        }
+
+	        return;
 	}
 }
 
