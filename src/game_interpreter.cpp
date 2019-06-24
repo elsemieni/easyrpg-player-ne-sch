@@ -51,6 +51,11 @@
 #include "utils.h"
 #include "transition.h"
 
+//netherware fix: steamshim
+#ifdef STEAMSHIM
+#   include "../steamshim/steamshim_child.h"
+#endif
+
 namespace {
 	// Used to ensure that the interpreter that runs after a Erase/ShowScreen
 	// is the invoker of the transition
@@ -1541,8 +1546,130 @@ bool Game_Interpreter::CommandPlaySound(RPG::EventCommand const& com) { // code 
 	return true;
 }
 
+//netherware fix: practicamente toda la funcion
 bool Game_Interpreter::CommandEndEventProcessing(RPG::EventCommand const& /* com */) { // code 12310
-	index = list.size();
+#ifdef STEAMSHIM
+	if ( Game_Variables.IsValid(1901) && Game_Variables.IsValid(1903) ) {
+
+		const STEAMSHIM_Event *e;
+		std::string variableName;
+
+		switch (Game_Variables.Get(1901)) {
+			case -101100:
+				//request stats
+				STEAMSHIM_requestStats();
+				return true;;
+				break;
+			case -101101:
+				//pump for stats received
+				e = STEAMSHIM_pump();
+				if (e) {
+					//event received
+					switch (e->type) {
+						case SHIMEVENT_STATSRECEIVED:
+							Game_Variables.Set(1901, 1);
+							break;
+						case SHIMEVENT_STATSSTORED:
+							Game_Variables.Set(1901, 2);
+							break;
+						case SHIMEVENT_SETACHIEVEMENT:
+							Game_Variables.Set(1901, 3);
+							break;
+						case SHIMEVENT_GETACHIEVEMENT:
+							Game_Variables.Set(1901, 4);
+							break;
+						case SHIMEVENT_RESETSTATS:
+							Game_Variables.Set(1901, 5);
+							break;
+						case SHIMEVENT_SETSTATI:
+							Game_Variables.Set(1901, 6);
+							break;
+						case SHIMEVENT_GETSTATI:
+							Game_Variables.Set(1901, 7);
+							Game_Variables.Set(1902, e->ivalue);
+							break;
+					    case SHIMEVENT_LEADERBOARDFINDRESULT:
+					        Game_Variables.Set(1901, 8);
+					        Game_Variables.Set(1902, e->ivalue);
+						default:
+							Game_Variables.Set(1901, -1);
+							break;
+					}
+				} else {
+					//No event this time
+					Game_Variables.Set(1901, 0);
+				}
+				return true;;
+				break;
+			case -101102:
+				//get stat
+				variableName = "RM_STEAM_STAT" + std::to_string(Game_Variables.Get(1902));
+				STEAMSHIM_getStatI(variableName.c_str());
+				Game_Variables.Set(1901, 0);
+				return true;
+				break;
+			case -101103:
+				//get archivement
+				variableName = "RM_STEAM_ARCHIV" + std::to_string(Game_Variables.Get(1902));
+				STEAMSHIM_getAchievement(variableName.c_str());
+				Game_Variables.Set(1901, 0);
+				return true;
+				break;
+			case -101104:
+				//set statI
+				variableName = "RM_STEAM_STAT" + std::to_string(Game_Variables.Get(1902));
+				STEAMSHIM_setStatI(variableName.c_str(), Game_Variables.Get(1903));
+				STEAMSHIM_storeStats();
+				Game_Variables.Set(1901, 0);
+				return true;
+				break;
+			case -101105:
+				//set archivement
+				variableName = "RM_STEAM_ARCHIV" + std::to_string(Game_Variables.Get(1902));
+				STEAMSHIM_setAchievement(variableName.c_str(), 1);
+				STEAMSHIM_storeStats();
+				Game_Variables.Set(1901, 0);
+				return true;
+				break;
+			case -101106:
+				//reset
+				STEAMSHIM_resetStats(1);
+    			STEAMSHIM_storeStats();
+    			Game_Variables.Set(1901, 0);
+    			return true;
+    			break;
+    		case -101107:
+				//get scoreboard id
+				variableName = "SCOREBOARD_" + std::to_string(Game_Variables.Get(1902));
+				STEAMSHIM_findLeaderboard(variableName.c_str());
+    			Game_Variables.Set(1901, 0);
+    			return true;
+    			break;
+    		case -101108:
+				//set value to scoreboard
+				STEAMSHIM_uploadLeaderboardScore(Game_Variables.Get(1902), Game_Variables.Get(1903));
+				STEAMSHIM_storeStats();
+    			Game_Variables.Set(1901, 0);
+    			return true;
+    			break;
+    			//next cases just skip to the next check block.
+		    case -101110:
+		    case -101111:
+		    case -101112:
+		        break;
+			default:
+				//default effect: execute End Event Processing
+				index = list.size();
+				break;
+		}
+	}
+
+#else
+	//netherware fix: if it's a standalone build and if I try to call steamshim function, do nothing.
+	if (!Game_Variables.IsValid(1901) || Game_Variables.Get(1901) == 0 ) {
+		index = list.size();
+	}
+#endif
 	return true;
 }
 

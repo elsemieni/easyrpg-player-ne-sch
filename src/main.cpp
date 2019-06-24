@@ -18,14 +18,38 @@
 #include "player.h"
 #include <cstdlib>
 
+//netherware fix: steamshim
+#ifdef STEAMSHIM
+#   include "../steamshim/steamshim_child.h"
+#endif
+
 // This is needed on Windows
 #ifdef USE_SDL
 #  include <SDL.h>
 #endif
 
 extern "C" int main(int argc, char* argv[]) {
+
+	//netherware fix: steamshim
+#ifdef STEAMSHIM
+	//Initialize steamshim
+	if (!STEAMSHIM_init()) {
+		printf("Please run Game instead\n");
+		return EXIT_FAILURE;
+	}
+
+	STEAMSHIM_requestStats();
+
+#endif
+
 	Player::Init(argc, argv);
 	Player::Run();
+
+	//netherware fix: shutdown steamshim
+#ifdef STEAMSHIM
+	//Shutdown steamshim
+    STEAMSHIM_deinit();
+#endif
 
 	return EXIT_SUCCESS;
 }

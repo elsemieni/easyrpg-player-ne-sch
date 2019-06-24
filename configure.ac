@@ -153,6 +153,19 @@ DX_HTML_FEATURE(ON)
 DX_DOT_FEATURE(ON)
 DX_INIT_DOXYGEN(easyrpg-player, resources/Doxyfile, doc)
 
+# ====================================================================================
+
+AC_ARG_ENABLE(steamshim,
+  AS_HELP_STRING(
+    [--enable-steamshim],
+    [Enable steamshim for SteamWorks GPLv3 friendly integration, default: no]))
+AM_CONDITIONAL([STEAMSHIM], [test "x$enable_steamshim" = "xyes"])
+AM_COND_IF([STEAMSHIM],
+    [AC_DEFINE(STEAMSHIM, 1, [Define to 1 for integrate Steamshim])],[])
+
+# ====================================================================================
+
+
 # Files to generate
 AC_CONFIG_FILES([Makefile
                  resources/Doxyfile])

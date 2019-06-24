@@ -351,6 +351,13 @@ libeasyrpg_player_a_SOURCES = \
 	src/window_varlist.cpp \
 	src/window_varlist.h
 
+if STEAMSHIM
+libeasyrpg_player_la_SOURCES += \
+    steamshim/steamshim_child.c \
+    steamshim/steamshim_child.h
+endif
+
+
 if WANT_FMMIDI
 libeasyrpg_player_a_SOURCES += \
 	src/midiprogram.h \
@@ -398,6 +405,9 @@ easyrpg_player_LDADD = libeasyrpg-player.a \
 	$(SNDFILE_LIBS) \
 	$(XMP_LIBS) \
 	$(SPEEXDSP_LIBS)
+
+#rpath fix for linux steam builds netherware
+#easyrpg_player_LDFLAGS = -rpath /OOORIGIN/lib64
 
 # manual page
 if HAVE_A2X
