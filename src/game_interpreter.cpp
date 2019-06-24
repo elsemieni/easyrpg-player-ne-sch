@@ -796,7 +796,7 @@ bool Game_Interpreter::CommandControlVariables(RPG::EventCommand const& com) { /
 					break;
 				case 1:
 					// How often the item is equipped
-					value = Main_Data::game_party->GetItemCount(com.parameters[5], true);
+					value = Main_Data::game_party->GetEquippedItemCount(com.parameters[5]);
 					break;
 			}
 			break;
@@ -1360,7 +1360,7 @@ bool Game_Interpreter::CommandChangeEquipment(RPG::EventCommand const& com) { //
 				continue;
 			}
 
-			if (Main_Data::game_party->GetItemCount(item_id, false) == 0 && !actor->IsEquipped(item_id)) {
+			if (Main_Data::game_party->GetItemCount(item_id) == 0 && !actor->IsEquipped(item_id)) {
 				Main_Data::game_party->AddItem(item_id, 1);
 			}
 
@@ -1435,10 +1435,13 @@ bool Game_Interpreter::CommandChangeCondition(RPG::EventCommand const& com) { //
 
 	for (const auto& actor : GetActors(com.parameters[0], com.parameters[1])) {
 		if (remove) {
-			actor->RemoveState(state_id);
+			// RPG_RT: On the map, will remove battle states even if actor has
+			// state inflicted by equipment.
+			actor->RemoveState(state_id, !Game_Temp::battle_running);
 			Game_Battle::SetNeedRefresh(true);
 		} else {
-			actor->AddState(state_id);
+			// RPG_RT always adds states from event commands, even battle states.
+			actor->AddState(state_id, true);
 			Game_Battle::SetNeedRefresh(true);
 		}
 	}
@@ -1452,6 +1455,8 @@ bool Game_Interpreter::CommandFullHeal(RPG::EventCommand const& com) { // Code 1
 		actor->RemoveAllStates();
 		actor->ChangeHp(actor->GetMaxHp());
 		actor->SetSp(actor->GetMaxSp());
+		// Emulates RPG_RT behavior of resetting even battle equipment states on full heal.
+		actor->ResetEquipmentStates(true);
 	}
 
 	CheckGameOver();
@@ -2657,11 +2662,11 @@ bool Game_Interpreter::CommandConditionalBranch(RPG::EventCommand const& com) { 
 		if (com.parameters[2] == 0) {
 			// Having
 			result = Main_Data::game_party->GetItemCount(com.parameters[1])
-				+ Main_Data::game_party->GetItemCount(com.parameters[1], true) > 0;
+				+ Main_Data::game_party->GetEquippedItemCount(com.parameters[1]) > 0;
 		} else {
 			// Not having
 			result = Main_Data::game_party->GetItemCount(com.parameters[1])
-				+ Main_Data::game_party->GetItemCount(com.parameters[1], true) == 0;
+				+ Main_Data::game_party->GetEquippedItemCount(com.parameters[1]) == 0;
 		}
 		break;
 	case 5:

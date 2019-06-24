@@ -836,18 +836,60 @@ void Player::LoadDatabase() {
 	}
 }
 
-static void OnMapSaveFileReady(FileRequestResult*) {
-	Game_Map::SetupFromSave();
-
-	// Compatibility hack for pre 0.6 EasyRPG Player saves.
-	// Old savegames accidentally wrote animation_type as
-	// continuous for all events.
+static void FixSaveGames() {
+	// Compatibility hacks for old EasyRPG Player saves.
 	if (Main_Data::game_data.easyrpg_data.version == 0) {
+		// Old savegames accidentally wrote animation_type as
+		// continuous for all events.
 		Main_Data::game_player->SetAnimationType(Game_Character::AnimType::AnimType_non_continuous);
 		Game_Map::GetVehicle(Game_Vehicle::Boat)->SetAnimationType(Game_Character::AnimType::AnimType_non_continuous);
 		Game_Map::GetVehicle(Game_Vehicle::Ship)->SetAnimationType(Game_Character::AnimType::AnimType_non_continuous);
 		Game_Map::GetVehicle(Game_Vehicle::Airship)->SetAnimationType(Game_Character::AnimType::AnimType_non_continuous);
 	}
+
+	if (Main_Data::game_data.easyrpg_data.version <= 600) {
+		// Old savegames didn't write the vehicle chunk.
+		Main_Data::game_data.boat_location.vehicle = 1;
+		Main_Data::game_data.ship_location.vehicle = 2;
+		Main_Data::game_data.airship_location.vehicle = 3;
+	}
+
+	// Old versions of player didn't sort the inventory, this ensures inventory is sorted
+	// as our Game_Party code relies on that. Items in RPG_RT are always sorted in the inventory.
+	if (!std::is_sorted(Main_Data::game_data.inventory.item_ids.begin(), Main_Data::game_data.inventory.item_ids.end())) {
+		Output::Debug("Loaded Save Game with unsorted inventory! Sorting ...");
+		// Resort the inventory.
+		struct ItemData { int id; int count; int usage; };
+
+		auto& ids = Main_Data::game_data.inventory.item_ids;
+		auto& counts = Main_Data::game_data.inventory.item_counts;
+		auto& usages = Main_Data::game_data.inventory.item_usage;
+
+		auto num_items = std::min(ids.size(), std::min(counts.size(), usages.size()));
+		std::vector<ItemData> items;
+		for (size_t i = 0; i < num_items; ++i) {
+			items.push_back(ItemData{ids[i], counts[i], usages[i]});
+		}
+
+		std::sort(items.begin(), items.end(), [](const ItemData& l, const ItemData& r) { return l.id < r.id; });
+
+		ids.clear();
+		counts.clear();
+		usages.clear();
+
+		for (auto& itd: items) {
+			ids.push_back(itd.id);
+			counts.push_back(itd.count);
+			usages.push_back(itd.usage);
+		}
+	}
+
+
+}
+
+static void OnMapSaveFileReady(FileRequestResult*) {
+	Game_Map::SetupFromSave();
+	FixSaveGames();
 
 	Main_Data::game_player->Refresh();
 

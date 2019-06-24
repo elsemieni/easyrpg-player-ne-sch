@@ -57,8 +57,9 @@ public:
 	 * Constructor.
 	 *
 	 * @param battler game battler to display
+	 * @param battle_index battle index for Z ordering
 	 */
-	Sprite_Battler(Game_Battler* battler);
+	Sprite_Battler(Game_Battler* battler, int battle_index);
 
 	~Sprite_Battler() override;
 
@@ -96,12 +97,22 @@ public:
 	int GetWidth() const override;
 	int GetHeight() const override;
 
+	/**
+	 * A hack for 2k battle system. Treat the sprite as not dead
+	 * even if the battler is dead. This is needed because battler "dies"
+	 * before the 2k battle system animates the death
+	 *
+	 * @param value whether to force alive or not
+	 */
+	void SetForcedAlive(bool value);
+
 protected:
 	void CreateSprite();
 	void DoIdleAnimation();
 	void OnMonsterSpriteReady(FileRequestResult* result);
 	void OnBattlercharsetReady(FileRequestResult* result, int32_t battler_index);
 	int GetMaxOpacity() const;
+	void ResetZ();
 
 	std::string sprite_name;
 	int hue = 0;
@@ -114,14 +125,17 @@ protected:
 	int fade_out = 255;
 	int fade_out_incr = 15;
 	int flash_counter = 0;
+	int battle_index = 0;
 	LoopState loop_state = LoopState_DefaultAnimationAfterFinish;
 	bool old_hidden = false;
 	std::unique_ptr<BattleAnimation> animation;
 	// false when a newly set animation didn't loop once
 	bool idling = true;
+	bool forced_alive = false;
 	float zoom = 1.0;
 
 	FileRequestBinding request_id;
 };
+
 
 #endif

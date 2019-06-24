@@ -93,20 +93,27 @@ public:
 	void LoseGold(int value);
 
 	/**
-	 * Returns all items of the party.
+	 * Returns all items of the party sorted by item id.
 	 *
 	 * @param item_list vector to fill.
 	 */
 	void GetItems(std::vector<int>& item_list);
 
 	/**
-	 * Gets number of possessed or equipped items.
+	 * Gets number of item in inventory.
 	 *
 	 * @param item_id database item ID.
-	 * @param get_equipped if true equipped items are counted instead
 	 * @return number of items.
 	 */
-	int GetItemCount(int item_id, bool get_equipped = false);
+	int GetItemCount(int item_id) const;
+
+	/**
+	 * Gets number of item equipped by the party.
+	 *
+	 * @param item_id database item ID.
+	 * @return number of items.
+	 */
+	int GetEquippedItemCount(int item_id) const;
 
 	/**
 	 * Gains an amount of items.
@@ -359,6 +366,8 @@ public:
 	Game_Actor* GetHighestLeveledActorWhoCanUse(const RPG::Item*) const;
 
 private:
+	std::pair<int,bool> GetItemIndex(int item_id) const;
+
 	const RPG::SaveInventory& data() const;
 	RPG::SaveInventory& data();
 };
