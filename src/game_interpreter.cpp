@@ -56,6 +56,13 @@
 #   include "../steamshim/steamshim_child.h"
 #endif
 
+//netherware fix sdl2ui para haptics
+//netherware fix: defs de controles
+//netherware fix : global joystick handler
+#include <SDL.h>
+extern SDL_Joystick* NethGloJoystickHandler;
+extern SDL_Haptic* NethGloHapticsHandler;
+
 namespace {
 	// Used to ensure that the interpreter that runs after a Erase/ShowScreen
 	// is the invoker of the transition
@@ -1537,13 +1544,25 @@ bool Game_Interpreter::CommandFadeOutBGM(RPG::EventCommand const& com) { // code
 }
 
 bool Game_Interpreter::CommandPlaySound(RPG::EventCommand const& com) { // code 11550
-	RPG::Sound sound;
-	sound.name = com.string;
-	sound.volume = com.parameters[0];
-	sound.tempo = com.parameters[1];
-	sound.balance = com.parameters[2];
-	Game_System::SePlay(sound, true);
-	return true;
+
+    //netherware fix: can we play audio? ^^
+    //Output::Warning("sound %s", com.string);
+    if(com.string == "_rumble") {
+        if (NethGloHapticsHandler) {
+        	float intensity = com.parameters[0] / 100.f;
+			int duration = (com.parameters[1] - 40) * 10;
+            SDL_HapticRumblePlay( NethGloHapticsHandler, intensity, duration );
+        }
+    } else {
+        RPG::Sound sound;
+        sound.name = com.string;
+        sound.volume = com.parameters[0];
+        sound.tempo = com.parameters[1];
+        sound.balance = com.parameters[2];
+        Game_System::SePlay(sound, true);
+        //return true;
+    }
+    return true;
 }
 
 //netherware fix: practicamente toda la funcion

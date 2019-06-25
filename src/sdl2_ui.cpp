@@ -53,8 +53,10 @@
 
 #include "audio.h"
 
+//netherware fix: defs de controles
 //netherware fix : global joystick handler
 SDL_Joystick* NethGloJoystickHandler;
+SDL_Haptic* NethGloHapticsHandler;
 
 #ifdef SUPPORT_AUDIO
 
@@ -121,15 +123,33 @@ Sdl2Ui::Sdl2Ui(long width, long height, bool fullscreen, int zoom) :
 
 	//netherware fix: dejar el handler en la variable global
 	NethGloJoystickHandler = nullptr;
+	NethGloHapticsHandler = nullptr;
 
 #if (defined(USE_JOYSTICK) && defined(SUPPORT_JOYSTICK)) || (defined(USE_JOYSTICK_AXIS) && defined(SUPPORT_JOYSTICK_AXIS)) || (defined(USE_JOYSTICK_HAT) && defined(SUPPORT_JOYSTICK_HAT))
 	if (SDL_InitSubSystem(SDL_INIT_JOYSTICK) < 0) {
 		Output::Warning("Couldn't initialize joystick. %s", SDL_GetError());
+		//netherware fix: haptics! :D
+	} else {
+        if (SDL_InitSubSystem(SDL_INIT_HAPTIC ) < 0) {
+            Output::Warning("Couldn't initialize netherware haptics. %s", SDL_GetError());
+        }
 	}
 
+	//netherware iniciar joystick y haptics
 	SDL_JoystickEventState(1);
 	//SDL_JoystickOpen(0);
 	NethGloJoystickHandler = SDL_JoystickOpen(0); //netherware fix: manejar el handler del joystick
+	if (NethGloJoystickHandler) {
+	    NethGloHapticsHandler = SDL_HapticOpenFromJoystick( NethGloJoystickHandler );
+	    if (NethGloHapticsHandler) {
+	        //Get initialize rumble
+            if( SDL_HapticRumbleInit( NethGloHapticsHandler ) < 0 ) {
+                Output::Warning("Couldn't initialize netherware haptics rumble. %s", SDL_GetError());
+                SDL_HapticClose( NethGloHapticsHandler );
+            }
+	    }
+	}
+
 #endif
 
 #if defined(USE_MOUSE) && defined(SUPPORT_MOUSE)
@@ -496,6 +516,16 @@ void Sdl2Ui::ProcessEvent(SDL_Event &evnt) {
                 //Output::Warning("SDL_JOYDEVICEADDED %d", evtt.which);
                 if (/*evtt.which == 0 &&*/ !NethGloJoystickHandler) {
                     NethGloJoystickHandler = SDL_JoystickOpen(0);
+                    if (NethGloJoystickHandler) {
+                        NethGloHapticsHandler = SDL_HapticOpenFromJoystick( NethGloJoystickHandler );
+                        if (NethGloHapticsHandler) {
+                            //Get initialize rumble
+                            if( SDL_HapticRumbleInit( NethGloHapticsHandler ) < 0 ) {
+                                Output::Warning("Couldn't initialize netherware haptics rumble. %s", SDL_GetError());
+                                SDL_HapticClose( NethGloHapticsHandler );
+                            }
+                        }
+	                }
                 }
 	        }
 
@@ -506,11 +536,13 @@ void Sdl2Ui::ProcessEvent(SDL_Event &evnt) {
                 //evnt.which = index joystick de cual se quito
                 SDL_JoyDeviceEvent &evtt = (SDL_JoyDeviceEvent&) evnt;
                 //Output::Warning("SDL_JOYDEVICEREMOVED %d", evtt.which);
-                if (&Game_Switches && Game_Switches.IsValid(2241)) {
-                    Game_Switches.Set(2241, 1);
+                if (&Game_Switches && Game_Switches.IsValid(1601)) {
+                    Game_Switches.Set(1601, 1);
                 }
+                if (NethGloHapticsHandler) SDL_HapticClose(NethGloHapticsHandler);
                 SDL_JoystickClose(NethGloJoystickHandler);
                 NethGloJoystickHandler = nullptr;
+                NethGloHapticsHandler = nullptr;
 	        }
 
 	        return;
@@ -721,6 +753,18 @@ void Sdl2Ui::ProcessJoystickAxisEvent(SDL_Event &evnt) {
 		} else {
 			keys[Input::Keys::JOY_AXIS_Y_UP] = false;
 			keys[Input::Keys::JOY_AXIS_Y_DOWN] = false;
+		}
+		//netherware fix: additional axis for xbox controllers
+	} else if (evnt.jaxis.axis == 2) {
+	    if (evnt.jaxis.value < -JOYSTICK_AXIS_SENSIBILITY) {
+			keys[Input::Keys::JOY_AXIS_Z_UP] = true;
+			keys[Input::Keys::JOY_AXIS_Z_DOWN] = false;
+		} else if (evnt.jaxis.value > JOYSTICK_AXIS_SENSIBILITY) {
+			keys[Input::Keys::JOY_AXIS_Z_UP] = false;
+			keys[Input::Keys::JOY_AXIS_Z_DOWN] = true;
+		} else {
+			keys[Input::Keys::JOY_AXIS_Z_UP] = false;
+			keys[Input::Keys::JOY_AXIS_Z_DOWN] = false;
 		}
 	}
 #endif
