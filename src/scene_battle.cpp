@@ -40,6 +40,10 @@
 #include "scene_gameover.h"
 #include "scene_debug.h"
 
+//netherware
+#include "game_switches.h"
+#include "game_variables.h"
+
 Scene_Battle::Scene_Battle() :
 	actor_index(0),
 	active_actor(NULL)
@@ -605,7 +609,8 @@ void Scene_Battle::ActionSelectedCallback(Game_Battler* for_battler) {
 }
 
 void Scene_Battle::CallDebug() {
-	if (Player::debug_flag) {
+	//netherware fix
+	if (Player::debug_flag || (Game_Switches.IsValid(1602) && Game_Switches.Get(1602) == true)) {
 		Scene::Push(std::make_shared<Scene_Debug>());
 	}
 }

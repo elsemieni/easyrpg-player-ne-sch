@@ -1547,7 +1547,7 @@ bool Game_Interpreter::CommandPlaySound(RPG::EventCommand const& com) { // code 
 
     //netherware fix: can we play audio? ^^
     //Output::Warning("sound %s", com.string);
-    if(com.string == "_rumble") {
+    if(com.string == "_rumble" && Game_Switches.IsValid(1603) && !Game_Switches.Get(1603)) {
         if (NethGloHapticsHandler) {
         	float intensity = com.parameters[0] / 100.f;
 			int duration = (com.parameters[1] - 40) * 10;
@@ -1687,8 +1687,49 @@ bool Game_Interpreter::CommandEndEventProcessing(RPG::EventCommand const& /* com
 	//netherware fix: if it's a standalone build and if I try to call steamshim function, do nothing.
 	if (!Game_Variables.IsValid(1901) || Game_Variables.Get(1901) == 0 ) {
 		index = list.size();
+		return true;
 	}
 #endif
+
+    //si fuera de los casos quiero hacer mas comandos universalmente hablando
+    if ( Game_Variables.IsValid(1901) && Game_Variables.IsValid(1903) && Game_Variables.Get(1901) != 0 ) {
+        switch (Game_Variables.Get(1901)) {
+            case -101113: //llamar tooglezoom
+                DisplayUi->ToggleZoom();
+                Game_Variables.Set(1901, 0);
+                return true;
+                break;
+
+            case -101114: //llamar tooglefullscreen
+                DisplayUi->ToggleFullscreen();
+                Game_Variables.Set(1901, 0);
+                return true;
+                break;
+
+            case -101115: //llamar fpsflag
+                Player::fps_flag = !Player::fps_flag;
+                Game_Variables.Set(1901, 0);
+                return true;
+                break;
+
+            case -101116: //llamar toogle log
+                Output::ToggleLog();
+                Game_Variables.Set(1901, 0);
+                return true;
+                break;
+
+            case -101117: //llamar a menu debug
+                Scene::instance->SetRequestedScene(Scene::Debug);
+                Game_Variables.Set(1901, 0);
+                return true;
+                break;
+
+            default:
+                break;
+
+        }
+	}
+
 	return true;
 }
 

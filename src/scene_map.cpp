@@ -41,6 +41,10 @@
 #include "screen.h"
 #include "scene_load.h"
 
+//netherware
+#include "game_switches.h"
+#include "game_variables.h"
+
 Scene_Map::Scene_Map(bool from_save) :
 	from_save(from_save) {
 	type = Scene::Map;
@@ -385,7 +389,8 @@ void Scene_Map::CallLoad() {
 }
 
 void Scene_Map::CallDebug() {
-	if (Player::debug_flag) {
+	//netherware fix
+	if (Player::debug_flag || (Game_Switches.IsValid(1602) && Game_Switches.Get(1602) == true)) {
 		Scene::Push(std::make_shared<Scene_Debug>());
 	}
 }
