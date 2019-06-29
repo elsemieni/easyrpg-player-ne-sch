@@ -4,22 +4,22 @@
 <dict>
 
     <key>CFBundleExecutable</key>
-    <string>EasyRPG Player</string>
+    <string>parent</string>
 
     <key>CFBundleGetInfoString</key>
-    <string>https://easyrpg.org</string>
+    <string>https://netherwareentertainment.com/</string>
 
     <key>CFBundleIconFile</key>
     <string>Player.icns</string>
 
     <key>CFBundleIdentifier</key>
-    <string>org.easyrpg.player</string>
+    <string>com.netherwareentertainment.sch</string>
 
     <key>CFBundleSignature</key>
-    <string>RPGP</string>
+    <string>???</string>
 
     <key>CFBundleVersion</key>
-    <string>GIT</string>
+    <string>1.0</string>
 
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
@@ -32,6 +32,27 @@
 
     <key>CFBundleShortVersionString</key>
     <string>0.6.0</string>
+	
+	<key>CFBundleName</key>
+	<string>Super Crystal Hunter</string>
+	
+	<key>CFBundleDisplayName</key>
+	<string>Super Crystal Hunter</string>
+	
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright © Netherware Entertainment</string>
+	
+	<key>CSResourcesFileMapped</key>
+	<true/>
+	
+	<key>LSRequiresCarbon</key>
+	<true/>
+	
+	<key>NSHighResolutionCapable</key>
+	<true/>
+
+	<key>SDL_FILESYSTEM_BASE_DIR_TYPE</key>
+	<string>parent</string>
 
 </dict>
 </plist>

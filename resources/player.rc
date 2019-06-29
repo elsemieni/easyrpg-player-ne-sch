@@ -11,14 +11,14 @@ FILETYPE 0x00000001L
 	{
 		BLOCK "000004E4"
 		{
-			VALUE "Comments", "https://easyrpg.org"
-			VALUE "CompanyName", "EasyRPG Project"
+			VALUE "Comments", "https://netherwareentertainment.com/"
+			VALUE "CompanyName", "Netherware Entertainment"
 			VALUE "FileVersion", "0.6.0.0"
-			VALUE "FileDescription", "EasyRPG Player"
+			VALUE "FileDescription", "Super Crystal Hunter"
 			VALUE "InternalName", "easyrpg-player"
-			VALUE "LegalCopyright", "2007-2019 EasyRPG Project"
+			VALUE "LegalCopyright", "2019 Netherware Entertainment"
 			VALUE "OriginalFilename", "Player.exe"
-			VALUE "ProductName", "EasyRPG Player"
+			VALUE "ProductName", "Super Crystal Hunter"
 			VALUE "ProductVersion", "0.6.0.0"
 		}
 	}
