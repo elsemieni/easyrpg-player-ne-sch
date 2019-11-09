@@ -30,6 +30,9 @@ public:
 		eVariable,
 		eItem,
 		eTroop,
+		eMap,
+		eHeal,
+		eCommonEvent,
 	};
 
 	/**

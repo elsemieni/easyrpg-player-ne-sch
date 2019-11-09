@@ -63,6 +63,7 @@ public:
 	void Start() override;
 	void Update() override;
 
+	void Continue(SceneType prev_scene) override;
 	void TransitionIn(SceneType prev_scene) override;
 	void TransitionOut(SceneType next_scene) override;
 	void DrawBackground() override;
@@ -145,8 +146,8 @@ protected:
 	void CreateEnemyActionBasic(Game_Enemy* enemy, const RPG::EnemyAction* action);
 	void CreateEnemyActionSkill(Game_Enemy* enemy, const RPG::EnemyAction* action);
 
+	void RemoveActionsForNonExistantBattlers();
 	void RemoveCurrentAction();
-	virtual void onCommandEnd() override;
 
 	void CallDebug();
 

@@ -129,19 +129,37 @@ namespace Game_System {
 	 */
 	void SePlay(const RPG::Animation& animation);
 
-	/**
-	 * Gets system graphic name.
-	 *
-	 * @return system graphic filename.
-	 */
-	std::string GetSystemName();
+	/** @return system graphic filename.  */
+	const std::string& GetSystemName();
+
+	/** @return message stretch style */
+	RPG::System::Stretch GetMessageStretch();
+
+	/** @return system font */
+	RPG::System::Font GetFontId();
 
 	/**
 	 * Sets the system graphic.
 	 *
 	 * @param system_name new system name.
+	 * @param message_stretch message stretch style
+	 * @param font_id The system font to use.
 	 */
-	void SetSystemName(std::string const& system_name);
+	void SetSystemGraphic(const std::string& system_name,
+			RPG::System::Stretch stretch,
+			RPG::System::Font font);
+
+	/** Resets the system graphic to the default value. */
+	void ResetSystemGraphic();
+
+	/** @return the system2 graphic name */
+	const std::string& GetSystem2Name();
+
+	/** @return true if the game has a configured system graphic */
+	bool HasSystemGraphic();
+
+	/** @return true if the game has a configured system2 graphic */
+	bool HasSystem2Graphic();
 
 	/**
 	 * Gets the system music.
@@ -241,10 +259,6 @@ namespace Game_System {
 	void SetAllowSave(bool allow);
 	bool GetAllowMenu();
 	void SetAllowMenu(bool allow);
-	RPG::System::Stretch GetMessageStretch();
-	void SetMessageStretch(RPG::System::Stretch stretch);
-	int GetFontId();
-	void SetFontId(int id);
 
 	int GetSaveCount();
 
@@ -254,6 +268,46 @@ namespace Game_System {
 
 	void OnBgmReady(FileRequestResult* result);
 	void OnSeReady(FileRequestResult* result, int volume, int tempo, bool stop_sounds);
+	void ReloadSystemGraphic();
+
+	/**
+	 * Determines if the requested file is supposed to Stop BGM/SE play.
+	 * For empty string and (OFF) this is always the case.
+	 * Many RPG Maker translation overtranslated the (OFF) reserved string,
+	 * e.g. (Brak) and (Kein Sound).
+	 * A file is detected as "Stop BGM/SE" when the file is missing in the
+	 * filesystem and the name is wrapped in (), otherwise it is a regular
+	 * file.
+	 *
+	 * @param name File to find
+	 * @param find_func Find function to use (FindSound or FindMusic)
+	 * @param found_name Name of the found file to play
+	 * @return true when the file is supposed to Stop playback.
+	 *         false otherwise and file to play is returned as found_name
+	 */
+	bool IsStopFilename(const std::string& name, std::string (*find_func) (const std::string&), std::string& found_name);
+
+	bool IsStopMusicFilename(const std::string& name, std::string& found_name);
+	bool IsStopMusicFilename(const std::string& name);
+	bool IsStopSoundFilename(const std::string& name, std::string& found_name);
+	bool IsStopSoundFilename(const std::string& name);
+}
+
+inline bool Game_System::HasSystemGraphic() {
+	return !GetSystemName().empty();
+}
+
+inline bool Game_System::HasSystem2Graphic() {
+	return !GetSystem2Name().empty();
+}
+
+inline bool Game_System::IsStopMusicFilename(const std::string& name) {
+	std::string s;
+	return IsStopMusicFilename(name, s);
+}
+inline bool Game_System::IsStopSoundFilename(const std::string& name) {
+	std::string s;
+	return IsStopSoundFilename(name, s);
 }
 
 #endif

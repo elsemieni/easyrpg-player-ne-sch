@@ -117,6 +117,17 @@ namespace FileFinder {
 	std::string FindDefault(const DirectoryTree& tree, const std::string& name);
 
 	/**
+	 * Finds a file with different extensions in a subdirectory of a custom directory tree.
+	 *
+	 * @param tree Project tree to search
+	 * @param dir directory to check
+	 * @param name the path and name
+	 * @param exts list of extensions
+	 * @return path to file.
+	 */
+	std::string FindDefault(FileFinder::DirectoryTree const& tree, const std::string& dir, const std::string& name, char const* exts[]);
+
+	/**
 	 * Finds a music file.
 	 * Searches through the Music folder of the current RPG Maker game and
 	 * the RTP directories.
@@ -174,9 +185,10 @@ namespace FileFinder {
 	 * This function is case sensitve on some platform.
 	 *
 	 * @param file file to check.
+	 * @param follow_symlinks if true, follow symlinks and report about the target.
 	 * @return true if file is directory, otherwise false.
 	 */
-	bool IsDirectory(const std::string& file);
+	bool IsDirectory(const std::string& file, bool follow_symlinks);
 
 	/**
 	 * Checks whether passed file exists.
@@ -269,7 +281,7 @@ namespace FileFinder {
 	 */
 	const std::shared_ptr<DirectoryTree> GetDirectoryTree();
 	const std::shared_ptr<DirectoryTree> CreateSaveDirectoryTree();
-	std::shared_ptr<DirectoryTree> CreateDirectoryTree(std::string const& p, bool recursive = true);
+	std::shared_ptr<DirectoryTree> CreateDirectoryTree(std::string const& p, Mode mode = RECURSIVE);
 
 	bool IsValidProject(DirectoryTree const& dir);
 	bool IsRPG2kProject(DirectoryTree const& dir);

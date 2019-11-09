@@ -95,8 +95,10 @@ namespace Player {
 	bool touch_flag;
 	std::string encoding;
 	std::string escape_symbol;
+	uint32_t escape_char;
 	int engine;
 	std::string game_title;
+	std::shared_ptr<Meta> meta;
 	int frames;
 	std::string replay_input_path;
 	std::string record_input_path;
@@ -325,6 +327,8 @@ void Player::Update(bool update_scene) {
 		}
 	}
 
+	start_time = next_frame;
+
 #ifdef EMSCRIPTEN
 	Graphics::Draw();
 #else
@@ -341,8 +345,6 @@ void Player::Update(bool update_scene) {
 #endif
 	}
 #endif
-
-	start_time = next_frame;
 }
 
 void Player::IncFrame() {
@@ -353,15 +355,17 @@ void Player::IncFrame() {
 
 void Player::FrameReset() {
 	// When update started
-	start_time = (double)DisplayUi->GetTicks();
+	FrameReset(DisplayUi->GetTicks());
+}
 
+void Player::FrameReset(uint32_t start_ticks) {
 	// available ms per frame, game logic expects 60 fps
 	static const double framerate_interval = 1000.0 / Graphics::GetDefaultFps();
 
 	// When next frame is expected
-	next_frame = start_time + framerate_interval;
+	next_frame = start_ticks + framerate_interval;
 
-	Graphics::FrameReset();
+	Graphics::FrameReset(start_ticks);
 }
 
 int Player::GetFrames() {
@@ -635,13 +639,10 @@ void Player::ParseCommandLine(int argc, char *argv[]) {
 #endif
 }
 
-static void OnSystemFileReady(FileRequestResult* result) {
-	Game_System::SetSystemName(result->file);
-}
-
 void Player::CreateGameObjects() {
 	GetEncoding();
 	escape_symbol = ReaderUtil::Recode("\\", encoding);
+	escape_char = Utils::DecodeUTF32(Player::escape_symbol).front();
 	if (escape_symbol.empty()) {
 		Output::Error("Invalid encoding: %s.", encoding.c_str());
 	}
@@ -656,6 +657,11 @@ void Player::CreateGameObjects() {
 	}
 
 	LoadDatabase();
+
+	// Load the meta information file.
+	// Note: This should eventually be split across multiple folders as described in Issue #1210
+	std::string meta_file = FileFinder::FindDefault(META_NAME);
+	meta.reset(new Meta(meta_file));
 
 	bool no_rtp_warning_flag = false;
 	std::string ini_file = FileFinder::FindDefault(INI_NAME);
@@ -762,13 +768,7 @@ void Player::CreateGameObjects() {
 }
 
 void Player::ResetGameObjects() {
-	if (Data::system.system_name != Game_System::GetSystemName()) {
-		FileRequestAsync* request = AsyncHandler::RequestFile("System", Data::system.system_name);
-		request->SetImportantFile(true);
-		request->SetGraphicFile(true);
-		system_request_id = request->Bind(&OnSystemFileReady);
-		request->Start();
-	}
+	Game_System::ResetSystemGraphic();
 
 	// The init order is important
 	Main_Data::Cleanup();
@@ -946,13 +946,9 @@ void Player::LoadSavegame(const std::string& save_name) {
 	save_request_id = map->Bind(&OnMapSaveFileReady);
 	map->SetImportantFile(true);
 
-	FileRequestAsync* system = AsyncHandler::RequestFile("System", Game_System::GetSystemName());
-	system->SetImportantFile(true);
-	system->SetGraphicFile(true);
-	system_request_id = system->Bind(&OnSystemFileReady);
+	Game_System::ReloadSystemGraphic();
 
 	map->Start();
-	system->Start();
 }
 
 static void OnMapFileReady(FileRequestResult*) {
@@ -970,7 +966,7 @@ static void OnMapFileReady(FileRequestResult*) {
 		}
 	}
 
-	Game_Map::Setup(map_id);
+	Game_Map::Setup(map_id, TeleportTarget::eParallelTeleport);
 	Main_Data::game_player->MoveTo(x_pos, y_pos);
 	Main_Data::game_player->Refresh();
 	Game_Map::PlayBgm();
@@ -1014,6 +1010,7 @@ std::string Player::GetEncoding() {
 			// When yes is a good encoding. Otherwise try the next ones.
 
 			escape_symbol = ReaderUtil::Recode("\\", enc);
+			escape_char = Utils::DecodeUTF32(Player::escape_symbol).front();
 			if (escape_symbol.empty()) {
 				// Bad encoding
 				Output::Debug("Bad encoding: %s. Trying next.", enc.c_str());
@@ -1040,6 +1037,7 @@ std::string Player::GetEncoding() {
 		}
 
 		escape_symbol = "";
+		escape_char = 0;
 
 		if (!encoding.empty()) {
 			Output::Debug("Detected encoding: %s", encoding.c_str());

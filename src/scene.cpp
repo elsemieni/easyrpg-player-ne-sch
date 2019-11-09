@@ -25,6 +25,7 @@
 #include "output.h"
 #include "audio.h"
 #include "transition.h"
+#include "game_interpreter.h"
 
 #ifndef NDEBUG
 #define DEBUG_VALIDATE(x) Scene::DebugValidate(x)
@@ -127,8 +128,9 @@ void Scene::MainFunction() {
 
 		Graphics::Update();
 
-		Suspend();
-		TransitionOut(instance ? instance->type : Null);
+		auto next_scene = instance ? instance->type : Null;
+		Suspend(next_scene);
+		TransitionOut(next_scene);
 
 		// TransitionOut stored a screenshot of the last scene
 		Graphics::UpdateSceneCallback();
@@ -146,7 +148,7 @@ void Scene::Continue(SceneType prev_scene) {
 void Scene::Resume(SceneType prev_scene) {
 }
 
-void Scene::Suspend() {
+void Scene::Suspend(SceneType next_scene) {
 }
 
 void Scene::TransitionIn(SceneType) {
@@ -262,6 +264,25 @@ void Scene::DrawBackground() {
 Graphics::State &Scene::GetGraphicsState() {
 	return state;
 }
+
+bool Scene::CheckSceneExit(AsyncOp aop) {
+	if (aop.GetType() == AsyncOp::eExitGame) {
+		if (Scene::Find(Scene::GameBrowser)) {
+			Scene::PopUntil(Scene::GameBrowser);
+		} else {
+			Player::exit_flag = true;
+		}
+		return true;
+	}
+
+	if (aop.GetType() == AsyncOp::eToTitle) {
+		Scene::PopUntil(Scene::Title);
+		return true;
+	}
+
+	return false;
+}
+
 
 
 inline void Scene::DebugValidate(const char* caller) {

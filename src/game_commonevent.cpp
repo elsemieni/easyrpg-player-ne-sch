@@ -22,35 +22,45 @@
 #include "game_interpreter_map.h"
 #include "main_data.h"
 #include "reader_util.h"
+#include <cassert>
 
 Game_CommonEvent::Game_CommonEvent(int common_event_id) :
-	common_event_id(common_event_id) {
+	common_event_id(common_event_id)
+{
+	auto* ce = ReaderUtil::GetElement(Data::commonevents, common_event_id);
+
+	if (ce->trigger == RPG::EventPage::Trigger_parallel
+			&& !ce->event_commands.empty()) {
+		interpreter.reset(new Game_Interpreter_Map());
+		interpreter->Push(this);
+	}
+
+
 }
 
 void Game_CommonEvent::SetSaveData(const RPG::SaveEventExecState& data) {
-	if (!data.stack.empty()) {
-		interpreter.reset(new Game_Interpreter_Map());
-		interpreter->SetupFromSave(data.stack);
-	}
-
-	Refresh();
-}
-
-void Game_CommonEvent::Refresh() {
-	if (GetTrigger() == RPG::EventPage::Trigger_parallel) {
+	// RPG_RT Savegames have empty stacks for parallel events.
+	// We are LSD compatible but don't load these into interpreter.
+	if (!data.stack.empty() && !data.stack.front().commands.empty()) {
 		if (!interpreter) {
 			interpreter.reset(new Game_Interpreter_Map());
 		}
+		interpreter->SetState(data);
 	}
 }
 
-void Game_CommonEvent::Update() {
-	if (interpreter && IsWaitingBackgroundExecution()) {
-		if (!interpreter->IsRunning()) {
-			interpreter->Setup(this, 0);
+AsyncOp Game_CommonEvent::Update(bool resume_async) {
+	if (interpreter && IsWaitingBackgroundExecution(resume_async)) {
+		assert(interpreter->IsRunning());
+		interpreter->Update(!resume_async);
+
+		// Suspend due to async op ...
+		if (interpreter->IsAsyncPending()) {
+			return interpreter->GetAsyncOp();
 		}
-		interpreter->Update();
 	}
+
+	return {};
 }
 
 int Game_CommonEvent::GetIndex() const {
@@ -80,26 +90,26 @@ std::vector<RPG::EventCommand>& Game_CommonEvent::GetList() {
 }
 
 RPG::SaveEventExecState Game_CommonEvent::GetSaveData() {
-	RPG::SaveEventExecState event_data;
-
+	RPG::SaveEventExecState state;
 	if (interpreter) {
-		event_data.stack = interpreter->GetSaveData();
+		state = interpreter->GetState();
 	}
-
-	return event_data;
+	if (GetTrigger() == RPG::EventPage::Trigger_parallel && state.stack.empty()) {
+		// RPG_RT always stores an empty stack frame for parallel events.
+		state.stack.push_back({});
+	}
+	return state;
 }
 
-bool Game_CommonEvent::IsWaitingExecution(RPG::EventPage::Trigger trigger) const {
+bool Game_CommonEvent::IsWaitingForegroundExecution() const {
 	auto* ce = ReaderUtil::GetElement(Data::commonevents, common_event_id);
-	return ce->trigger == trigger &&
+	return ce->trigger == RPG::EventPage::Trigger_auto_start &&
 		(!ce->switch_flag || Game_Switches.Get(ce->switch_id))
 		&& !ce->event_commands.empty();
 }
 
-bool Game_CommonEvent::IsWaitingForegroundExecution() const {
-	return IsWaitingExecution(RPG::EventPage::Trigger_auto_start);
-}
-
-bool Game_CommonEvent::IsWaitingBackgroundExecution() const {
-	return IsWaitingExecution(RPG::EventPage::Trigger_parallel);
+bool Game_CommonEvent::IsWaitingBackgroundExecution(bool force_run) const {
+	auto* ce = ReaderUtil::GetElement(Data::commonevents, common_event_id);
+	return ce->trigger == RPG::EventPage::Trigger_parallel &&
+		(force_run || !ce->switch_flag || Game_Switches.Get(ce->switch_id));
 }

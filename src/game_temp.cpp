@@ -20,18 +20,12 @@
 #include "transition.h"
 
 bool Game_Temp::inn_calling;
-bool Game_Temp::to_title;
-bool Game_Temp::transition_processing;
-Transition::TransitionType Game_Temp::transition_type;
-bool Game_Temp::transition_erase;
 bool Game_Temp::shop_buys;
 bool Game_Temp::shop_sells;
 int Game_Temp::shop_type;
-bool Game_Temp::shop_handlers;
 std::vector<int> Game_Temp::shop_goods;
 bool Game_Temp::shop_transaction;
 int Game_Temp::inn_price;
-bool Game_Temp::inn_handlers;
 std::string Game_Temp::hero_name;
 int Game_Temp::hero_name_id;
 int Game_Temp::hero_name_charset;
@@ -43,21 +37,16 @@ int Game_Temp::battle_escape_mode;
 int Game_Temp::battle_defeat_mode;
 bool Game_Temp::battle_first_strike;
 int Game_Temp::battle_result;
+bool Game_Temp::battle_random_encounter;
 
 void Game_Temp::Init() {
 	inn_calling = false;
-	to_title = false;
-	transition_processing = false;
-	transition_type = Transition::TransitionNone;
-	transition_erase = false;
 	shop_buys = true;
 	shop_sells = true;
 	shop_type = 0;
-	shop_handlers = false;
 	shop_goods = {};
 	shop_transaction = false;
 	inn_price = 0;
-	inn_handlers = false;
 	hero_name = "";
 	hero_name_id = 0;
 	hero_name_charset = 0;
@@ -69,4 +58,5 @@ void Game_Temp::Init() {
 	battle_defeat_mode = 0;
 	battle_first_strike = false;
 	battle_result = BattleAbort;
+	battle_random_encounter = false;
 }

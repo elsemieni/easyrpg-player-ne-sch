@@ -16,7 +16,7 @@
     <string>com.netherwareentertainment.sch</string>
 
     <key>CFBundleSignature</key>
-    <string>???</string>
+    <string>RPGP</string>
 
     <key>CFBundleVersion</key>
     <string>1.0</string>
@@ -31,23 +31,23 @@
     <string>APPL</string>
 
     <key>CFBundleShortVersionString</key>
-    <string>0.6.0</string>
-	
+    <string>0.6.1</string>
+
 	<key>CFBundleName</key>
 	<string>Super Crystal Hunter</string>
-	
+
 	<key>CFBundleDisplayName</key>
 	<string>Super Crystal Hunter</string>
-	
+
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © Netherware Entertainment</string>
-	
+
 	<key>CSResourcesFileMapped</key>
 	<true/>
-	
+
 	<key>LSRequiresCarbon</key>
 	<true/>
-	
+
 	<key>NSHighResolutionCapable</key>
 	<true/>
 

@@ -31,12 +31,12 @@
 #include "player.h"
 #include "utils.h"
 #include <cmath>
+#include <cassert>
 
 Game_Event::Game_Event(int map_id, const RPG::Event& event) :
 	Game_Character(Event, new RPG::SaveMapEvent()),
 	_data_copy(this->data()),
-	event(event),
-	from_save(false)
+	event(event)
 {
 	SetMapId(map_id);
 	SetMoveSpeed(3);
@@ -45,22 +45,17 @@ Game_Event::Game_Event(int map_id, const RPG::Event& event) :
 }
 
 Game_Event::Game_Event(int map_id, const RPG::Event& event, const RPG::SaveMapEvent& orig_data) :
+	//FIXME: This will leak if Game_Character() throws.
 	Game_Character(Event, new RPG::SaveMapEvent(orig_data)),
 	_data_copy(this->data()),
-	event(event),
-	from_save(true)
+	event(event)
 {
 	// Savegames have 0 for the mapid for compatibility with RPG_RT.
 	SetMapId(map_id);
 
 	this->event.ID = data()->ID;
 
-	if (!data()->parallel_event_execstate.stack.empty()) {
-		interpreter.reset(new Game_Interpreter_Map());
-		static_cast<Game_Interpreter_Map*>(interpreter.get())->SetupFromSave(data()->parallel_event_execstate.stack);
-	}
-
-	Refresh();
+	Refresh(true);
 }
 
 int Game_Event::GetOriginalMoveRouteIndex() const {
@@ -69,14 +64,6 @@ int Game_Event::GetOriginalMoveRouteIndex() const {
 
 void Game_Event::SetOriginalMoveRouteIndex(int new_index) {
 	data()->original_move_route_index = new_index;
-}
-
-bool Game_Event::GetThrough() const {
-	return page == nullptr || data()->through;
-}
-
-void Game_Event::SetThrough(bool through) {
-	data()->through = through;
 }
 
 void Game_Event::ClearWaitingForegroundExecution() {
@@ -89,29 +76,21 @@ void Game_Event::Setup(const RPG::EventPage* new_page) {
 	const RPG::EventPage* old_page = page;
 	page = new_page;
 
-	// Free resources if needed
-	if (interpreter) {
-		// If the new page is null and the interpreter is running, it should
-		// carry on executing its command list during this frame
-		if (page)
-			interpreter->Clear();
-		Game_Map::ReserveInterpreterDeletion(interpreter);
-		interpreter.reset();
+	// If the new page is null and the interpreter is running, it should
+	// carry on executing its command list during this frame
+	if (interpreter && page) {
+		interpreter->Clear();
 	}
 
 	SetPaused(false);
 
 	if (page == nullptr) {
-		SetSpriteName("");
-		SetSpriteIndex(0);
+		SetSpriteGraphic("", 0);
 		SetDirection(RPG::EventPage::Direction_down);
-		trigger = -1;
-		list.clear();
 		return;
 	}
 
-	SetSpriteName(page->character_name);
-	SetSpriteIndex(page->character_index);
+	SetSpriteGraphic(page->character_name, page->character_index);
 
 	SetMoveSpeed(page->move_speed);
 	SetMoveFrequency(page->move_frequency);
@@ -143,11 +122,15 @@ void Game_Event::Setup(const RPG::EventPage* new_page) {
 	SetTransparency(page->translucent ? 3 : 0);
 	SetLayer(page->layer);
 	data()->overlap_forbidden = page->overlap_forbidden;
-	trigger = page->trigger;
-	list = page->event_commands;
 
-	if (trigger == RPG::EventPage::Trigger_parallel) {
-		interpreter.reset(new Game_Interpreter_Map());
+	if (GetTrigger() == RPG::EventPage::Trigger_parallel) {
+		if (!page->event_commands.empty()) {
+			if (!interpreter) {
+				interpreter.reset(new Game_Interpreter_Map());
+			}
+			// RPG_RT will wait until the next call to Update() to push the interpreter code.
+			// This forces the interpreter to yield when it changes it's own page.
+		}
 	}
 }
 
@@ -155,28 +138,32 @@ void Game_Event::SetupFromSave(const RPG::EventPage* new_page) {
 	page = new_page;
 
 	if (page == nullptr) {
-		trigger = -1;
-		list.clear();
-		interpreter.reset();
 		return;
 	}
 
 	original_move_frequency = page->move_frequency;
-	trigger = page->trigger;
-	list = page->event_commands;
 
-	// Trigger parallel events when the interpreter wasn't already running
-	// (because it was the middle of a parallel event while saving)
-	if (!interpreter && trigger == RPG::EventPage::Trigger_parallel) {
-		interpreter.reset(new Game_Interpreter_Map());
+	if (interpreter) {
+		interpreter->Clear();
+	}
+
+	if (GetTrigger() == RPG::EventPage::Trigger_parallel) {
+		auto& state = data()->parallel_event_execstate;
+		// RPG_RT Savegames have empty stacks for parallel events.
+		// We are LSD compatible but don't load these into interpreter.
+		if (!state.stack.empty() && !state.stack.front().commands.empty()) {
+			if (!interpreter) {
+				interpreter.reset(new Game_Interpreter_Map());
+			}
+			interpreter->SetState(state);
+		}
 	}
 }
 
-void Game_Event::Refresh() {
+void Game_Event::Refresh(bool from_save) {
 	if (!data()->active) {
 		if (from_save) {
 			SetVisible(false);
-			from_save = false;
 		}
 		return;
 	}
@@ -201,7 +188,6 @@ void Game_Event::Refresh() {
 	// don't setup event, already done
 	if (from_save) {
 		SetupFromSave(new_page);
-		from_save = false;
 	}
 	else if (new_page != this->page) {
 		ClearWaitingForegroundExecution();
@@ -304,13 +290,14 @@ bool Game_Event::WasStartedByDecisionKey() const {
 }
 
 RPG::EventPage::Trigger Game_Event::GetTrigger() const {
+	int trigger = page ? page->trigger : -1;
 	return static_cast<RPG::EventPage::Trigger>(trigger);
 }
 
 
 bool Game_Event::SetAsWaitingForegroundExecution(bool face_hero, bool by_decision_key) {
 	// RGSS scripts consider list empty if size <= 1. Why?
-	if (list.empty() || !data()->active) {
+	if (GetList().empty() || !data()->active) {
 		return false;
 	}
 
@@ -325,8 +312,10 @@ bool Game_Event::SetAsWaitingForegroundExecution(bool face_hero, bool by_decisio
 	return true;
 }
 
+static std::vector<RPG::EventCommand> _empty_list = {};
+
 const std::vector<RPG::EventCommand>& Game_Event::GetList() const {
-	return list;
+	return page ? page->event_commands : _empty_list;
 }
 
 void Game_Event::OnFinishForegroundEvent() {
@@ -337,7 +326,7 @@ void Game_Event::OnFinishForegroundEvent() {
 }
 
 void Game_Event::CheckEventAutostart() {
-	if (trigger == RPG::EventPage::Trigger_auto_start
+	if (GetTrigger() == RPG::EventPage::Trigger_auto_start
 			&& GetRemainingStep() == 0) {
 		SetAsWaitingForegroundExecution(false, false);
 		return;
@@ -345,7 +334,7 @@ void Game_Event::CheckEventAutostart() {
 }
 
 void Game_Event::CheckEventCollision() {
-	if (trigger == RPG::EventPage::Trigger_collision
+	if (GetTrigger() == RPG::EventPage::Trigger_collision
 			&& GetLayer() != RPG::EventPage::Layers_same
 			&& !Main_Data::game_player->IsMoveRouteOverwritten()
 			&& !Game_Map::GetInterpreter().IsRunning()
@@ -359,7 +348,7 @@ void Game_Event::CheckEventCollision() {
 void Game_Event::OnMoveFailed(int x, int y) {
 	if (Main_Data::game_player->InAirship()
 			|| GetLayer() != RPG::EventPage::Layers_same
-			|| trigger != RPG::EventPage::Trigger_collision) {
+			|| GetTrigger() != RPG::EventPage::Trigger_collision) {
 		return;
 	}
 
@@ -513,9 +502,9 @@ void Game_Event::MoveTypeAwayFromPlayer() {
 	MoveTypeTowardsOrAwayPlayer(false);
 }
 
-void Game_Event::Update() {
-	if (!data()->active || page == NULL) {
-		return;
+AsyncOp Game_Event::Update(bool resume_async) {
+	if (!data()->active || (!resume_async && page == NULL)) {
+		return {};
 	}
 
 	// RPG_RT runs the parallel interpreter everytime Update is called.
@@ -523,21 +512,26 @@ void Game_Event::Update() {
 	// the interpreter will run multiple times per frame.
 	// This results in event waits to finish quicker during collisions as
 	// the wait will tick by 1 each time the interpreter is invoked.
-	if (trigger == RPG::EventPage::Trigger_parallel && interpreter) {
-		if (!interpreter->IsRunning()) {
-			interpreter->Setup(this);
+	if ((resume_async || GetTrigger() == RPG::EventPage::Trigger_parallel) && interpreter) {
+		if (!interpreter->IsRunning() && page && !page->event_commands.empty()) {
+			interpreter->Push(this);
 		}
-		interpreter->Update();
+		interpreter->Update(!resume_async);
+
+		// Suspend due to async op ...
+		if (interpreter->IsAsyncPending()) {
+			return interpreter->GetAsyncOp();
+		}
 
 		// RPG_RT only exits if active is false here, but not if there is
 		// no active page...
 		if (!data()->active) {
-			return;
+			return {};
 		}
 	}
 
 	if (IsProcessed()) {
-		return;
+		return {};
 	}
 	SetProcessed(true);
 
@@ -555,6 +549,7 @@ void Game_Event::Update() {
 	if (IsStopping()) {
 		CheckEventCollision();
 	}
+	return {};
 }
 
 const RPG::EventPage* Game_Event::GetPage(int page) const {
@@ -569,9 +564,20 @@ const RPG::EventPage *Game_Event::GetActivePage() const {
 }
 
 const RPG::SaveMapEvent& Game_Event::GetSaveData() {
-	if (interpreter) {
-		data()->parallel_event_execstate.stack = static_cast<Game_Interpreter_Map*>(interpreter.get())->GetSaveData();
+	RPG::SaveEventExecState state;
+	if (page && page->trigger == RPG::EventPage::Trigger_parallel) {
+		if (interpreter) {
+			state = interpreter->GetState();
+		}
+
+		if (state.stack.empty()) {
+			// RPG_RT always stores an empty stack frame for parallel events.
+			RPG::SaveEventExecFrame frame;
+			frame.event_id = GetId();
+			state.stack.push_back(std::move(frame));
+		}
 	}
+	data()->parallel_event_execstate = std::move(state);
 	data()->ID = event.ID;
 
 	return *data();

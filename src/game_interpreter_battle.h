@@ -36,7 +36,7 @@ class Game_CommonEvent;
 class Game_Interpreter_Battle : public Game_Interpreter
 {
 public:
-	Game_Interpreter_Battle(int _depth = 0, bool _main_flag = false);
+	Game_Interpreter_Battle();
 
 	bool ExecuteCommand() override;
 private:
@@ -51,6 +51,8 @@ private:
 	bool CommandShowBattleAnimation(RPG::EventCommand const& com);
 	bool CommandTerminateBattle(RPG::EventCommand const& com);
 	bool CommandConditionalBranchBattle(RPG::EventCommand const& com);
+	bool CommandElseBranchBattle(RPG::EventCommand const& com);
+	bool CommandEndBranchBattle(RPG::EventCommand const& com);
 };
 
 #endif

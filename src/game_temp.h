@@ -34,23 +34,13 @@ public:
 	static void Init();
 
 	static bool inn_calling;
-	static bool to_title;
-
-	static bool transition_processing;
-	static Transition::TransitionType transition_type;
-	static bool transition_erase;
 
 	static bool shop_buys;
 	static bool shop_sells;
 	static int shop_type;		// message set A, B, or C
-	static bool shop_handlers;	// custom transaction/no-transaction handlers
 	static std::vector<int> shop_goods;
 	static bool shop_transaction;
-
-	static int inn_type;		// message set A or B
 	static int inn_price;
-	static bool inn_handlers;	// custom stay/no-stay handlers
-	static bool inn_stay;
 
 	static std::string hero_name;
 	static int hero_name_id;
@@ -64,6 +54,7 @@ public:
 	static int battle_defeat_mode;
 	static bool battle_first_strike;
 	static int battle_result;
+	static bool battle_random_encounter;
 
 	enum BattleResult {
 		BattleVictory,

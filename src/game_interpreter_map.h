@@ -23,7 +23,7 @@
 #include <vector>
 #include "game_character.h"
 #include "rpg_eventcommand.h"
-#include "rpg_saveeventexecframe.h"
+#include "rpg_saveeventexecstate.h"
 #include "system.h"
 #include "game_interpreter.h"
 
@@ -36,32 +36,38 @@ class Game_CommonEvent;
 class Game_Interpreter_Map : public Game_Interpreter
 {
 public:
-	Game_Interpreter_Map(int _depth = 0, bool _main_flag = false);
+	using Game_Interpreter::Game_Interpreter;
 
 	/**
-	 * Parses a SaveEventCommand to create an interpreter.
+	 * Sets up the interpreter with given state.
 	 *
 	 * @param save event to load.
-	 * @param index index in the event list.
 	 *
-	 * @return If the setup was successful (fails when index out of range)
 	 */
-	bool SetupFromSave(const std::vector<RPG::SaveEventExecFrame>& save, int index = 0);
+	void SetState(const RPG::SaveEventExecState& save);
 
 	/**
-	 * Generates a SaveEventCommands vector needed for the savefile.
-	 *
-	 * @return interpreter commands stored in SaveEventCommands
+	 * Called when we change maps.
 	 */
-	std::vector<RPG::SaveEventExecFrame> GetSaveData() const;
+	void OnMapChange();
 
 	bool ExecuteCommand() override;
 
 private:
 	bool CommandRecallToLocation(RPG::EventCommand const& com);
 	bool CommandEnemyEncounter(RPG::EventCommand const& com);
+	bool CommandVictoryHandler(RPG::EventCommand const& com);
+	bool CommandEscapeHandler(RPG::EventCommand const& com);
+	bool CommandDefeatHandler(RPG::EventCommand const& com);
+	bool CommandEndBattle(RPG::EventCommand const& com);
 	bool CommandOpenShop(RPG::EventCommand const& com);
+	bool CommandTransaction(RPG::EventCommand const& com);
+	bool CommandNoTransaction(RPG::EventCommand const& com);
+	bool CommandEndShop(RPG::EventCommand const& com);
 	bool CommandShowInn(RPG::EventCommand const& com);
+	bool CommandStay(RPG::EventCommand const& com);
+	bool CommandNoStay(RPG::EventCommand const& com);
+	bool CommandEndInn(RPG::EventCommand const& com);
 	bool CommandEnterHeroName(RPG::EventCommand const& com);
 	bool CommandTeleport(RPG::EventCommand const& com);
 	bool CommandEnterExitVehicle(RPG::EventCommand const& com);
@@ -75,11 +81,10 @@ private:
 	bool CommandOpenMainMenu(RPG::EventCommand const& com);
 	bool CommandOpenLoadMenu(RPG::EventCommand const& com);
 	bool CommandToggleAtbMode(RPG::EventCommand const& com);
+	bool CommandOpenVideoOptions(RPG::EventCommand const& com);
 
 	bool ContinuationOpenShop(RPG::EventCommand const& com) override;
 	bool ContinuationShowInnStart(RPG::EventCommand const& com) override;
-	bool ContinuationShowInnContinue(RPG::EventCommand const& com);
-	bool ContinuationShowInnFinish(RPG::EventCommand const& com) override;
 	bool ContinuationEnemyEncounter(RPG::EventCommand const& com) override;
 
 	static std::vector<Game_Character*> pending;

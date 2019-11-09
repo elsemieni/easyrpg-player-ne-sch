@@ -49,7 +49,7 @@ EXEFS_SRC	:=	exefs_src
 
 APP_TITLE	:= EasyRPG Player
 APP_AUTHOR	:= EasyRPG Team & Rinnegatamante
-APP_VERSION	:= 0.6.0
+APP_VERSION	:= 0.6.1
 ICON		:= icon.jpg
 
 #---------------------------------------------------------------------------------
@@ -72,7 +72,7 @@ CFLAGS	+=	$(INCLUDE) -D__SWITCH__ \
 			-I$(TOOLCHAIN_DIR)/include/libxmp-lite \
 			-I$(TOOLCHAIN_DIR)/include/freetype2
 
-CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
+CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++14
 
 ASFLAGS	:=	-g $(ARCH)
 LDFLAGS	=	-specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)

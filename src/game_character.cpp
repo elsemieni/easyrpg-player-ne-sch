@@ -257,6 +257,9 @@ void Game_Character::UpdateMoveRoute(int32_t& current_index, const RPG::MoveRout
 		//Move route is finished
 		if (current_index >= last_move_route_index) {
 			if (current_route.repeat) {
+				if (IsMoveRouteOverwritten()) {
+					SetMoveRouteRepeated(true);
+				}
 				current_index = 0;
 			} else {
 				if (IsMoveRouteOverwritten()) {
@@ -269,9 +272,6 @@ void Game_Character::UpdateMoveRoute(int32_t& current_index, const RPG::MoveRout
 
 		// Repeating move route will end after doing one full cycle in a single frame.
 		if (num_cmds_processed >= current_route.move_commands.size()) {
-			if (IsMoveRouteOverwritten() && current_route.repeat) {
-				SetMoveRouteRepeated(true);
-			}
 			break;
 		}
 
@@ -371,7 +371,7 @@ void Game_Character::UpdateMoveRoute(int32_t& current_index, const RPG::MoveRout
 				Game_Map::Refresh();
 				break;
 			case RPG::MoveCommand::Code::change_graphic: // String: File, Parameter A: index
-				SetGraphic(move_command.parameter_string, move_command.parameter_a);
+				SetSpriteGraphic(move_command.parameter_string, move_command.parameter_a);
 				break;
 			case RPG::MoveCommand::Code::play_sound_effect: // String: File, Parameters: Volume, Tempo, Balance
 				if (move_command.parameter_string != "(OFF)" && move_command.parameter_string != "(Brak)") {
@@ -412,6 +412,7 @@ void Game_Character::UpdateMoveRoute(int32_t& current_index, const RPG::MoveRout
 
 		++current_index;
 		++num_cmds_processed;
+
 		if(!is_move_route_possible()) {
 			break;
 		}
@@ -809,10 +810,6 @@ bool Game_Character::GetVisible() const {
 	return visible;
 }
 
-void Game_Character::SetVisible(bool visible) {
-	this->visible = visible;
-}
-
 bool Game_Character::IsAnimated() const {
 	auto at = GetAnimationType();
 	return !IsAnimPaused()
@@ -847,17 +844,10 @@ int Game_Character::GetBushDepth() const {
 	return Game_Map::GetBushDepth(GetX(), GetY());
 }
 
-void Game_Character::SetGraphic(const std::string& name, int index) {
-	if (GetSpriteName() != name || GetSpriteIndex() != index) {
-		SetSpriteName(name);
-		SetSpriteIndex(index);
-	}
-}
-
 void Game_Character::Flash(int r, int g, int b, int power, int frames) {
 	data()->flash_red = r;
-	data()->flash_blue = g;
-	data()->flash_green = b;
+	data()->flash_green = g;
+	data()->flash_blue = b;
 	data()->flash_current_level = power;
 	data()->flash_time_left = frames;
 }

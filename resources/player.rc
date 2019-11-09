@@ -3,8 +3,8 @@
 1 24 "player.xml"
 #endif
 1 VERSIONINFO
-FILEVERSION 0,6,0,0
-PRODUCTVERSION 0,6,0,0
+FILEVERSION 0,6,1,0
+PRODUCTVERSION 0,6,1,0
 FILETYPE 0x00000001L
 {
 	BLOCK "StringFileInfo"
@@ -13,13 +13,13 @@ FILETYPE 0x00000001L
 		{
 			VALUE "Comments", "https://netherwareentertainment.com/"
 			VALUE "CompanyName", "Netherware Entertainment"
-			VALUE "FileVersion", "0.6.0.0"
+			VALUE "FileVersion", "0.6.1.0"
 			VALUE "FileDescription", "Super Crystal Hunter"
 			VALUE "InternalName", "easyrpg-player"
 			VALUE "LegalCopyright", "2019 Netherware Entertainment"
 			VALUE "OriginalFilename", "Player.exe"
 			VALUE "ProductName", "Super Crystal Hunter"
-			VALUE "ProductVersion", "0.6.0.0"
+			VALUE "ProductVersion", "0.6.1.0"
 		}
 	}
 	BLOCK "VarFileInfo"

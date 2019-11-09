@@ -78,7 +78,7 @@
 #include "output.h"
 #include "player.h"
 #include "registry.h"
-#include "rtp_table.h"
+#include "rtp.h"
 #include "main_data.h"
 #include "reader_util.h"
 
@@ -96,13 +96,25 @@ namespace {
 	const char* const MOVIE_TYPES[] = { ".avi", ".mpg" };
 #endif
 
-	typedef std::vector<std::shared_ptr<FileFinder::DirectoryTree>> search_path_list;
+	using search_path_list = std::vector<std::shared_ptr<FileFinder::DirectoryTree>>;
+
 	std::shared_ptr<FileFinder::DirectoryTree> game_directory_tree;
-	search_path_list search_paths;
 	std::string fonts_path;
-	bool disable_rtp = true;
-	bool disable_rtp_warnings = false;
-	bool warning_broken_rtp_game_shown = false;
+
+	struct {
+		// all RTP search paths
+		search_path_list search_paths;
+		// RTP was disabled with --disable-rtp
+		bool disable_rtp = true;
+		// Game has FullPackageFlag=1, RTP will still be used as RPG_RT does
+		bool game_has_full_package_flag = false;
+		// warning about "game has FullPackageFlag=1 but needs RTP" shown
+		bool warning_broken_rtp_game_shown = false;
+		// RTP candidates per search_pathwarning_broken_rtp_game_shown
+		std::vector<RTP::RtpHitInfo> detected_rtp;
+		// the RTP the game uses, when only one left the RTP of the game is known
+		std::vector<RTP::Type> game_rtp;
+	} rtp_state;
 
 	std::string FindFile(FileFinder::DirectoryTree const& tree,
 										  const std::string& dir,
@@ -128,18 +140,15 @@ namespace {
 		if (combined_path != canon) {
 			// Very few games (e.g. Yume2kki) use path traversal (..) in the filenames to point
 			// to files outside of the actual directory.
-			// Fix the path and search the file again with the correct root directory set.
-			if (dir != ".") {
-				// Prevent "path adjusted" debug log when searching for ExFont
-				Output::Debug("Path adjusted: %s -> %s", combined_path.c_str(), canon.c_str());
+			// Fix the path and continue searching.
+			size_t pos = canon.find_first_of("/");
+			if (pos == std::string::npos) {
+				corrected_dir = ".";
+				corrected_name = canon;
+			} else {
+				corrected_dir = canon.substr(0, pos);
+				corrected_name = canon.substr(pos + 1);
 			}
-			for (char const** c = exts; *c != NULL; ++c) {
-				std::string res = FileFinder::FindDefault(tree, canon + *c);
-				if (!res.empty()) {
-					return res;
-				}
-			}
-			return "";
 		}
 
 #ifdef _WIN32
@@ -173,80 +182,113 @@ namespace {
 		return "";
 	}
 
-	bool is_not_ascii_char(uint8_t c) { return c > 0x80; }
+	// returns empty string when the file is not belonging to an RTP
+	const std::string rtp_lookup(const std::string& dir, const std::string& name, const char* exts[], bool& is_rtp_asset) {
+		int version = Player::EngineVersion();
 
-	bool is_not_ascii_filename(const std::string& n) {
-		return std::find_if(n.begin(), n.end(), &is_not_ascii_char) != n.end();
-	}
-
-	const std::string translate_rtp(const std::string& dir, const std::string& name) {
-		// returns empty string when the file is not belonging to an RTP
-		RTP::rtp_table_type const& table =
-			Player::IsRPG2k() ? RTP::RTP_TABLE_2000 : RTP::RTP_TABLE_2003;
-
-		RTP::rtp_table_type::const_iterator dir_it = table.find(ReaderUtil::Normalize(dir).c_str());
-		std::string corrected_name = ReaderUtil::Normalize(name);
-
-		if (dir_it == table.end()) { return std::string(); }
-
-		std::map<const char*, const char*>::const_iterator file_it = dir_it->second.find(corrected_name.c_str());
-		if (file_it == dir_it->second.end()) {
-			if (is_not_ascii_filename(corrected_name)) {
-				// Linear Search: Japanese file name to English file name
-				for (const auto& entry : dir_it->second) {
-					if (!strcmp(entry.second, corrected_name.c_str())) {
-						return entry.first;
-					}
+		auto normal_search = [&]() -> std::string {
+			is_rtp_asset = false;
+			for (const auto path : rtp_state.search_paths) {
+				const std::string ret = FindFile(*path, dir, name, exts);
+				if (!ret.empty()) {
+					return ret;
 				}
 			}
 			return std::string();
+		};
+
+		// Detect the RTP version the game uses, when only one candidate is left the RTP is known
+		if (rtp_state.game_rtp.size() != 1) {
+			auto candidates = RTP::LookupAnyToRtp(dir, name, version);
+
+			// Prevent Don Miguel RTP addon data from being detected as game RTP because a game can only have one RTP
+			// and using this one will break the whole lookup table logic.
+			auto addon_it = std::find(candidates.begin(), candidates.end(), RTP::Type::RPG2000_DonMiguelAddon);
+			if (addon_it != candidates.end()) {
+				candidates.erase(addon_it);
+			}
+
+			// when empty the requested asset does not belong to any (known) RTP
+			if (!candidates.empty()) {
+				if (rtp_state.game_rtp.empty()) {
+					rtp_state.game_rtp = candidates;
+				} else {
+					// Strategy: Remove all RTP that are not candidates by comparing with all previous candidates
+					// as the used RTP can only be the one that contains all by now requested assets
+					for (auto it = rtp_state.game_rtp.begin(); it != rtp_state.game_rtp.end();) {
+						if (std::find(candidates.begin(), candidates.end(), *it) == candidates.end()) {
+							it = rtp_state.game_rtp.erase(it);
+						} else {
+							++it;
+						}
+					}
+				}
+
+				if (rtp_state.game_rtp.size() == 1) {
+					// From now on the RTP lookups should be perfect
+					Output::Debug("Game uses RTP \"%s\"", RTP::Names[(int) rtp_state.game_rtp[0]]);
+				}
+			}
 		}
-		return file_it->second;
+
+		if (rtp_state.game_rtp.empty()) {
+			// The game RTP is currently unknown because all requested assets by now were not in any RTP
+			// -> fallback to direct search
+			is_rtp_asset = false;
+			return normal_search();
+		}
+
+		// Search across all RTP
+		for (const auto& rtp : rtp_state.detected_rtp) {
+			for (RTP::Type game_rtp : rtp_state.game_rtp) {
+				std::string rtp_entry = RTP::LookupRtpToRtp(dir, name, game_rtp, rtp.type, &is_rtp_asset);
+				if (!rtp_entry.empty()) {
+					const std::string ret = FindFile(*rtp.tree, dir, rtp_entry, exts);
+					if (!ret.empty()) {
+						is_rtp_asset = true;
+						return ret;
+					}
+				}
+			}
+		}
+
+		// Asset is missing or not a RTP asset -> fallback to direct search
+		return normal_search();
 	}
 
 	std::string FindFile(const std::string &dir, const std::string& name, const char* exts[]) {
-		std::string rtp_name;
-
 		const std::shared_ptr<FileFinder::DirectoryTree> tree = FileFinder::GetDirectoryTree();
-		std::string const ret = FindFile(*tree, dir, name, exts);
-		if (!ret.empty()) { return ret; }
+		std::string ret = FindFile(*tree, dir, name, exts);
+		if (!ret.empty()) {
+			return ret;
+		}
 
-		// Try RTP if enabled and available
-		if (!disable_rtp)
-			rtp_name = translate_rtp(dir, name);
+		// True RTP if enabled and available
+		if (!rtp_state.disable_rtp) {
+			bool is_rtp_asset;
+			ret = rtp_lookup(ReaderUtil::Normalize(dir), ReaderUtil::Normalize(name), exts, is_rtp_asset);
 
-		if (!rtp_name.empty()) {
-			// RPG_RT will even load RTP files when the game disables it
-			if (disable_rtp_warnings && !warning_broken_rtp_game_shown) {
-				std::string lcase = Utils::LowerCase(dir);
-				if (lcase != "music" && lcase != "sound") {
-					warning_broken_rtp_game_shown = true;
+			std::string lcase = ReaderUtil::Normalize(dir);
+			bool is_audio_asset = lcase == "music" || lcase == "sound";
+
+			if (is_rtp_asset) {
+				if (!ret.empty() && rtp_state.game_has_full_package_flag && !rtp_state.warning_broken_rtp_game_shown && !is_audio_asset) {
+					rtp_state.warning_broken_rtp_game_shown = true;
 					Output::Warning("This game claims it does not need the RTP, but actually uses files from it!");
+				} else if (ret.empty() && !rtp_state.game_has_full_package_flag && !is_audio_asset) {
+					std::string msg = "Cannot find: %s/%s. " +
+						std::string(rtp_state.search_paths.empty() ?
+						"Install RTP %d to resolve this warning." : "RTP %d was probably not installed correctly.");
+					Output::Warning(msg.c_str(), dir.c_str(), name.c_str(), Player::EngineVersion());
 				}
-			}
-
-			for(search_path_list::const_iterator i = search_paths.begin(); i != search_paths.end(); ++i) {
-				if (! *i) { continue; }
-
-				std::string const ret = FindFile(*(*i), dir, name, exts);
-				if (!ret.empty()) { return ret; }
-
-				std::string const ret_rtp = FindFile(*(*i), dir, rtp_name, exts);
-				if (!ret_rtp.empty()) { return ret_rtp; }
 			}
 		}
 
-		if (!disable_rtp_warnings && !rtp_name.empty()) {
-			std::string msg = "Cannot find: %s/%s (%s). " + std::string(search_paths.empty() ?
-				"Install RTP %d to resolve this warning." : "RTP %d was probably not installed correctly.");
-
-			Output::Warning(msg.c_str(), dir.c_str(), name.c_str(), rtp_name.c_str(), Player::EngineVersion());
-		} else {
-			// not an RTP asset or RTP support was disabled
+		if (ret.empty()) {
 			Output::Debug("Cannot find: %s/%s", dir.c_str(), name.c_str());
 		}
 
-		return std::string();
+		return ret;
 	}
 } // anonymous namespace
 
@@ -257,7 +299,7 @@ const std::shared_ptr<FileFinder::DirectoryTree> FileFinder::GetDirectoryTree() 
 const std::shared_ptr<FileFinder::DirectoryTree> FileFinder::CreateSaveDirectoryTree() {
 	std::string save_path = Main_Data::GetSavePath();
 
-	if (!(Exists(save_path) && IsDirectory(save_path))) { return std::shared_ptr<DirectoryTree>(); }
+	if (!(Exists(save_path) && IsDirectory(save_path, true))) { return std::shared_ptr<DirectoryTree>(); }
 
 	std::shared_ptr<DirectoryTree> tree = std::make_shared<DirectoryTree>();
 	tree->directory_path = save_path;
@@ -278,12 +320,18 @@ void FileFinder::SetDirectoryTree(std::shared_ptr<DirectoryTree> directory_tree)
 	game_directory_tree = directory_tree;
 }
 
-std::shared_ptr<FileFinder::DirectoryTree> FileFinder::CreateDirectoryTree(const std::string& p, bool recursive) {
-	if(! (Exists(p) && IsDirectory(p))) { return std::shared_ptr<DirectoryTree>(); }
+std::shared_ptr<FileFinder::DirectoryTree> FileFinder::CreateDirectoryTree(const std::string& p, Mode mode) {
+	if(! (Exists(p) && IsDirectory(p, true))) { return std::shared_ptr<DirectoryTree>(); }
 	std::shared_ptr<DirectoryTree> tree = std::make_shared<DirectoryTree>();
 	tree->directory_path = p;
 
-	Directory mem = GetDirectoryMembers(tree->directory_path, ALL);
+	bool recursive = false;
+	if (mode == RECURSIVE) {
+		mode = ALL;
+		recursive = true;
+	}
+
+	Directory mem = GetDirectoryMembers(tree->directory_path, mode);
 	for (auto& i : mem.files) {
 		tree->files[i.first] = i.second;
 	}
@@ -353,7 +401,7 @@ std::vector<std::string> FileFinder::SplitPath(const std::string& path) {
 
 std::string FileFinder::GetPathInsidePath(const std::string& path_to, const std::string& path_in) {
 	if (!Utils::StartsWith(path_in, path_to)) {
-		return "";
+		return path_in;
 	}
 
 	std::string path_out = path_in.substr(path_to.size());
@@ -451,9 +499,26 @@ std::string FileFinder::FindFont(const std::string& name) {
 static void add_rtp_path(const std::string& p) {
 	using namespace FileFinder;
 	std::shared_ptr<DirectoryTree> tree(CreateDirectoryTree(p));
-	if(tree) {
+	if (tree) {
 		Output::Debug("Adding %s to RTP path", p.c_str());
-		search_paths.push_back(tree);
+		rtp_state.search_paths.push_back(tree);
+
+		auto hit_info = RTP::Detect(tree, Player::EngineVersion());
+
+		if (hit_info.empty()) {
+			Output::Debug("The folder does not contain a known RTP!");
+		}
+
+		// Only consider the best RTP hits (usually 100% if properly installed)
+		float best = 0.0;
+		for (const auto& hit : hit_info) {
+			float rate = (float)hit.hits / hit.max;
+			if (rate >= best) {
+				Output::Debug("RTP is \"%s\" (%d/%d)", hit.name.c_str(), hit.hits, hit.max);
+				rtp_state.detected_rtp.emplace_back(hit);
+				best = rate;
+			}
+		}
 	}
 }
 
@@ -474,23 +539,20 @@ static void read_rtp_registry(const std::string& company, const std::string& pro
 }
 
 void FileFinder::InitRtpPaths(bool no_rtp, bool no_rtp_warnings) {
+	rtp_state = {};
+
 #ifdef EMSCRIPTEN
 	// No RTP support for emscripten at the moment.
-	disable_rtp = true;
+	rtp_state.disable_rtp = true;
 #else
-	disable_rtp = no_rtp;
+	rtp_state.disable_rtp = no_rtp;
 #endif
-	disable_rtp_warnings = no_rtp_warnings;
+	rtp_state.game_has_full_package_flag = no_rtp_warnings;
 
-	if (disable_rtp) {
+	if (rtp_state.disable_rtp) {
 		Output::Debug("RTP support is disabled.");
 		return;
 	}
-
-	RTP::Init();
-
-	search_paths.clear();
-	warning_broken_rtp_game_shown = false;
 
 	std::string const version_str =	Player::GetEngineVersion();
 	assert(!version_str.empty());
@@ -584,7 +646,7 @@ void FileFinder::InitRtpPaths(bool no_rtp, bool no_rtp_warnings) {
 }
 
 void FileFinder::Quit() {
-	search_paths.clear();
+	rtp_state = {};
 	game_directory_tree.reset();
 }
 
@@ -661,6 +723,10 @@ bool FileFinder::IsValidProject(DirectoryTree const & dir) {
 	return IsRPG2kProject(dir) || IsEasyRpgProject(dir);
 }
 
+std::string FileFinder::FindDefault(FileFinder::DirectoryTree const &tree, const std::string &dir, const std::string &name,	const char **exts) {
+	return FindFile(tree, dir, name, exts);
+}
+
 bool FileFinder::IsRPG2kProject(DirectoryTree const& dir) {
 	string_map::const_iterator const
 		ldb_it = dir.files.find(Utils::LowerCase(DATABASE_NAME)),
@@ -726,32 +792,34 @@ bool FileFinder::Exists(const std::string& filename) {
 #endif
 }
 
-bool FileFinder::IsDirectory(const std::string& dir) {
-#if (defined(GEKKO) || defined(_3DS) || defined(__SWITCH__))
-	struct stat sb;
-	if (::stat(dir.c_str(), &sb) == 0)
-		return S_ISDIR(sb.st_mode);
-	return false;
-#else
+bool FileFinder::IsDirectory(const std::string& dir, bool follow_symlinks) {
+#if !(defined(GEKKO) || defined(_3DS) || defined(__SWITCH__))
 	if (!Exists(dir)) {
 		return false;
 	}
+#endif
 
-#  ifdef _WIN32
+#ifdef _WIN32
 	int attribs = ::GetFileAttributesW(Utils::ToWideString(dir).c_str());
 	return (attribs & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT))
 	      == FILE_ATTRIBUTE_DIRECTORY;
-#  else
+#else
 	struct stat sb;
-	::lstat(dir.c_str(), &sb);
-	return S_ISDIR(sb.st_mode);
+#  if (defined(GEKKO) || defined(_3DS) || defined(__SWITCH__))
+	auto fn = ::stat;
+#  else
+	auto fn = follow_symlinks ? ::stat : ::lstat;
 #  endif
+	if (fn(dir.c_str(), &sb) == 0) {
+		return S_ISDIR(sb.st_mode);
+	}
+	return false;
 #endif
 }
 
 FileFinder::Directory FileFinder::GetDirectoryMembers(const std::string& path, FileFinder::Mode const m, const std::string& parent) {
 	assert(FileFinder::Exists(path));
-	assert(FileFinder::IsDirectory(path));
+	assert(FileFinder::IsDirectory(path, true));
 
 	Directory result;
 
@@ -813,7 +881,7 @@ FileFinder::Directory FileFinder::GetDirectoryMembers(const std::string& path, F
 		}
 
 		if (!has_fast_dir_stat) {
-			is_directory = IsDirectory(MakePath(path, name));
+			is_directory = IsDirectory(MakePath(path, name), true);
 		}
 
 		if (name == "." || name == "..") {
@@ -840,10 +908,15 @@ FileFinder::Directory FileFinder::GetDirectoryMembers(const std::string& path, F
 			result.files[ReaderUtil::Normalize(MakePath(parent, name))] = MakePath(parent, name);
 			continue;
 		}
+		std::string name_norm = ReaderUtil::Normalize(name);
 		if (is_directory) {
-			result.directories[ReaderUtil::Normalize(name)] = name;
+			if (result.directories.find(name_norm) != result.directories.end()) {
+				Output::Warning("This game provides the folder \"%s\" twice.", name.c_str());
+				Output::Warning("This can lead to file not found errors. Merge the directories manually in a file browser.");
+			}
+			result.directories[name_norm] = name;
 		} else {
-			result.files[ReaderUtil::Normalize(name)] = name;
+			result.files[name_norm] = name;
 		}
 	}
 

@@ -24,7 +24,8 @@
 #include "game_character.h"
 #include "rpg_event.h"
 #include "rpg_savemapevent.h"
-#include "game_interpreter.h"
+#include "game_interpreter_map.h"
+#include "async_op.h"
 
 /**
  * Game_Event class.
@@ -46,8 +47,6 @@ public:
 	 * Implementation of abstract methods
 	 */
 	/** @{ */
-	bool GetThrough() const override;
-	void SetThrough(bool through) override;
 	bool IsMoveRouteActive() const override;
 	void OnMoveFailed(int x, int y) override;
 	/** @} */
@@ -55,7 +54,7 @@ public:
 	/**
 	 * Does refresh.
 	 */
-	void Refresh();
+	void Refresh(bool from_save = false);
 
 	void Setup(const RPG::EventPage* new_page);
 	void SetupFromSave(const RPG::EventPage* new_page);
@@ -110,10 +109,14 @@ public:
 	/** Mark the event as waiting for execution */
 	bool SetAsWaitingForegroundExecution(bool face_hero, bool triggered_by_decision_key);
 
-	/** Update this for the current frame */
-	void Update();
+	/** 
+	 * Update this for the current frame
+	 *
+	 * @param resume_async If we're resuming from an async operation.
+	 * @return async operation if we should suspend, otherwise returns AsyncOp::eNone
+	 */
+	AsyncOp Update(bool resume_async);
 
-	void UpdateParallel();
 	bool AreConditionsMet(const RPG::EventPage& page);
 
 	/**
@@ -147,6 +150,7 @@ public:
 	const RPG::EventPage* GetActivePage() const;
 
 	const RPG::SaveMapEvent& GetSaveData();
+
 protected:
 	RPG::SaveMapEvent* data();
 	const RPG::SaveMapEvent* data() const;
@@ -200,12 +204,9 @@ private:
 	// reference.
 	std::unique_ptr<RPG::SaveMapEvent> _data_copy;
 
-	int trigger = -1;
 	RPG::Event event;
 	const RPG::EventPage* page = nullptr;
-	std::vector<RPG::EventCommand> list;
-	std::shared_ptr<Game_Interpreter> interpreter;
-	bool from_save;
+	std::unique_ptr<Game_Interpreter_Map> interpreter;
 };
 
 inline RPG::SaveMapEvent* Game_Event::data() {

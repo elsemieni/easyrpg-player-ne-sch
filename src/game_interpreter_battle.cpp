@@ -30,16 +30,23 @@
 #include "game_temp.h"
 #include "game_map.h"
 #include "spriteset_battle.h"
+#include <cassert>
 
-Game_Interpreter_Battle::Game_Interpreter_Battle(int depth, bool main_flag) :
-	Game_Interpreter(depth, main_flag) {
-}
+enum BranchBattleSubcommand {
+	eOptionBranchBattleElse = 1
+};
+
+Game_Interpreter_Battle::Game_Interpreter_Battle()
+	: Game_Interpreter(true) {}
 
 // Execute Command.
 bool Game_Interpreter_Battle::ExecuteCommand() {
-	if (index >= list.size()) {
-		return CommandEnd();
-	}
+	auto* frame = GetFrame();
+	assert(frame);
+	const auto& list = frame->commands;
+	auto& index = frame->current_command;
+
+	assert(index < (int)list.size());
 
 	RPG::EventCommand const& com = list[index];
 
@@ -67,9 +74,9 @@ bool Game_Interpreter_Battle::ExecuteCommand() {
 		case Cmd::ConditionalBranch_B:
 			return CommandConditionalBranchBattle(com);
 		case Cmd::ElseBranch_B:
-			return SkipTo(Cmd::EndBranch_B);
+			return CommandElseBranchBattle(com);
 		case Cmd::EndBranch_B:
-			return true;
+			return CommandEndBranchBattle(com);
 		default:
 			return Game_Interpreter::ExecuteCommand();
 	}
@@ -78,9 +85,6 @@ bool Game_Interpreter_Battle::ExecuteCommand() {
 // Commands
 
 bool Game_Interpreter_Battle::CommandCallCommonEvent(RPG::EventCommand const& com) {
-	if (child_interpreter)
-		return false;
-
 	int evt_id = com.parameters[0];
 
 	Game_CommonEvent* common_event = ReaderUtil::GetElement(Game_Map::GetCommonEvents(), evt_id);
@@ -89,8 +93,7 @@ bool Game_Interpreter_Battle::CommandCallCommonEvent(RPG::EventCommand const& co
 		return true;
 	}
 
-	child_interpreter.reset(new Game_Interpreter_Battle(depth + 1));
-	child_interpreter->Setup(common_event, 0);
+	Push(common_event);
 
 	return true;
 }
@@ -249,19 +252,16 @@ bool Game_Interpreter_Battle::CommandChangeBattleBG(RPG::EventCommand const& com
 }
 
 bool Game_Interpreter_Battle::CommandShowBattleAnimation(RPG::EventCommand const& com) {
-	if (waiting_battle_anim) {
-		waiting_battle_anim = Game_Battle::IsBattleAnimationWaiting();
-		return !waiting_battle_anim;
-	}
-
 	int animation_id = com.parameters[0];
 	int target = com.parameters[1];
-	waiting_battle_anim = com.parameters[2] != 0;
+	bool waiting_battle_anim = com.parameters[2] != 0;
 	bool allies = false;
 
 	if (Player::IsRPG2k3()) {
 		allies = com.parameters[3] != 0;
 	}
+
+	int frames = 0;
 
 	if (target < 0) {
 		std::vector<Game_Battler*> v;
@@ -272,9 +272,7 @@ bool Game_Interpreter_Battle::CommandShowBattleAnimation(RPG::EventCommand const
 			Main_Data::game_enemyparty->GetActiveBattlers(v);
 		}
 
-		Game_Battle::ShowBattleAnimation(animation_id, v, false);
-
-		return !waiting_battle_anim;
+		frames = Game_Battle::ShowBattleAnimation(animation_id, v, false);
 	}
 	else {
 		Game_Battler* battler_target = nullptr;
@@ -292,14 +290,16 @@ bool Game_Interpreter_Battle::CommandShowBattleAnimation(RPG::EventCommand const
 			}
 		}
 
-		if (!battler_target) {
-			return !waiting_battle_anim;
+		if (battler_target) {
+			frames = Game_Battle::ShowBattleAnimation(animation_id, { battler_target });
 		}
-
-		Game_Battle::ShowBattleAnimation(animation_id, battler_target);
 	}
 
-	return !waiting_battle_anim;
+	if (waiting_battle_anim) {
+		_state.wait_time = frames;
+	}
+
+	return true;
 }
 
 bool Game_Interpreter_Battle::CommandTerminateBattle(RPG::EventCommand const& /* com */) {
@@ -358,8 +358,10 @@ bool Game_Interpreter_Battle::CommandConditionalBranchBattle(RPG::EventCommand c
 
 			if (!actor) {
 				Output::Warning("ConditionalBranchBattle: Invalid actor ID %d", com.parameters[1]);
-				// Use Else branch
-				return SkipTo(Cmd::ElseBranch_B, Cmd::EndBranch_B);
+				// Use Else Branch
+				SetSubcommandIndex(com.indent, 1);
+				SkipToNextConditional({Cmd::ElseBranch_B, Cmd::EndBranch_B}, com.indent);
+				return true;
 			}
 
 			result = actor->CanAct();
@@ -382,7 +384,9 @@ bool Game_Interpreter_Battle::CommandConditionalBranchBattle(RPG::EventCommand c
 			if (!actor) {
 				Output::Warning("ConditionalBranchBattle: Invalid actor ID %d", com.parameters[1]);
 				// Use Else branch
-				return SkipTo(Cmd::ElseBranch_B, Cmd::EndBranch_B);
+				SetSubcommandIndex(com.indent, 1);
+				SkipToNextConditional({Cmd::ElseBranch_B, Cmd::EndBranch_B}, com.indent);
+				return true;
 			}
 
 			result = actor->GetLastBattleAction() == com.parameters[2];
@@ -390,8 +394,21 @@ bool Game_Interpreter_Battle::CommandConditionalBranchBattle(RPG::EventCommand c
 		}
 	}
 
-	if (result)
-		return true;
+	int sub_idx = subcommand_sentinel;
+	if (!result) {
+		sub_idx = eOptionBranchBattleElse;
+		SkipToNextConditional({Cmd::ElseBranch_B, Cmd::EndBranch_B}, com.indent);
+	}
 
-	return SkipTo(Cmd::ElseBranch_B, Cmd::EndBranch_B);
+	SetSubcommandIndex(com.indent, sub_idx);
+	return true;
 }
+
+bool Game_Interpreter_Battle::CommandElseBranchBattle(RPG::EventCommand const& com) { //code 23310
+	return CommandOptionGeneric(com, eOptionBranchBattleElse, {Cmd::EndBranch_B});
+}
+
+bool Game_Interpreter_Battle::CommandEndBranchBattle(RPG::EventCommand const& com) { //code 23311
+	return true;
+}
+

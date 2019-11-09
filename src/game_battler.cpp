@@ -27,6 +27,8 @@
 #include "game_party_base.h"
 #include "game_switches.h"
 #include "game_system.h"
+#include "game_temp.h"
+#include "game_targets.h"
 #include "util_macro.h"
 #include "main_data.h"
 #include "utils.h"
@@ -170,6 +172,22 @@ bool Game_Battler::IsSkillUsable(int skill_id) const {
 
 	if (CalculateSkillCost(skill_id) > GetSp()) {
 		return false;
+	}
+
+	if (skill->type == RPG::Skill::Type_escape) {
+		return !Game_Temp::battle_running && Game_System::GetAllowEscape() && Game_Targets::HasEscapeTarget();
+	}
+
+	if (skill->type == RPG::Skill::Type_teleport) {
+		return !Game_Temp::battle_running && Game_System::GetAllowTeleport() && Game_Targets::HasTeleportTarget();
+	}
+
+	if (skill->type == RPG::Skill::Type_switch) {
+		if (Game_Temp::battle_running) {
+			return skill->occasion_battle;
+		} else {
+			return skill->occasion_field;
+		}
 	}
 
 	// > 10 makes any skill usable
@@ -654,7 +672,7 @@ int Game_Battler::GetAgi() const {
 }
 
 int Game_Battler::GetDisplayX() const {
-	int shake_pos = Main_Data::game_data.screen.shake_position;
+	int shake_pos = Main_Data::game_data.screen.shake_position + shake_position;
 	return GetBattleX() + shake_pos;
 }
 
@@ -713,7 +731,15 @@ int Game_Battler::GetFlyingOffset() const {
 }
 
 void Game_Battler::UpdateBattle() {
-	// no-op
+	if (shake_time_left > 0) {
+		--shake_time_left;
+		if (shake_time_left > 0) {
+			shake_position = Game_Screen::AnimateShake(shake_strength, shake_speed, shake_time_left, shake_position);
+		} else {
+			shake_position = 0;
+			shake_time_left = 0;
+		}
+	}
 }
 
 const BattleAlgorithmRef Game_Battler::GetBattleAlgorithm() const {
@@ -855,3 +881,11 @@ int Game_Battler::GetHitChanceModifierFromStates() const {
 	}
 	return modifier;
 }
+
+void Game_Battler::ShakeOnce(int strength, int speed, int frames) {
+	shake_strength = strength;
+	shake_speed = speed;
+	shake_time_left = frames;
+	// FIXME: RPG_RT doesn't reset position for screen shake. So we guess? it doesn't do so here either.
+}
+

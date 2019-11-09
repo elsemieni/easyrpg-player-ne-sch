@@ -21,6 +21,7 @@
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <cassert>
 #include "audio.h"
 #include "game_map.h"
 #include "game_battle.h"
@@ -47,64 +48,45 @@
 #include "game_interpreter_map.h"
 #include "reader_lcf.h"
 
-Game_Interpreter_Map::Game_Interpreter_Map(int depth, bool main_flag) :
-	Game_Interpreter(depth, main_flag) {
-}
+enum EnemyEncounterSubcommand {
+	eOptionEnemyEncounterVictory = 0,
+	eOptionEnemyEncounterEscape = 1,
+	eOptionEnemyEncounterDefeat = 2,
+};
 
-bool Game_Interpreter_Map::SetupFromSave(const std::vector<RPG::SaveEventExecFrame>& save, int _index) {
+enum ShopSubcommand {
+	eOptionShopTransaction = 0,
+	eOptionShopNoTransaction = 1,
+};
+
+enum InnSubcommand {
+	eOptionInnStay = 0,
+	eOptionInnNoStay = 1,
+};
+
+void Game_Interpreter_Map::SetState(const RPG::SaveEventExecState& save) {
 	Clear();
-	if (_index < (int)save.size()) {
-		event_id = save[_index].event_id;
-		if (event_id != 0) {
-			// When 0 the event is from a different map
-			map_id = Game_Map::GetMapId();
-		}
-		list = save[_index].commands;
-		index = save[_index].current_command;
-		triggered_by_decision_key = save[_index].triggered_by_decision_key;
-
-		child_interpreter.reset(new Game_Interpreter_Map());
-		bool result = static_cast<Game_Interpreter_Map*>(child_interpreter.get())->SetupFromSave(save, _index + 1);
-		if (!result) {
-			child_interpreter.reset();
-		}
-		return true;
-	}
-	return false;
+	_state = save;
+	_keyinput.fromSave(save);
 }
 
-std::vector<RPG::SaveEventExecFrame> Game_Interpreter_Map::GetSaveData() const {
-	std::vector<RPG::SaveEventExecFrame> save;
-
-	const Game_Interpreter_Map* save_interpreter = this;
-
-	int i = 1;
-
-	if (save_interpreter->list.empty()) {
-		return save;
+void Game_Interpreter_Map::OnMapChange() {
+	// When we change the map, we reset all event id's to 0.
+	for (auto& frame: _state.stack) {
+		frame.event_id = 0;
 	}
-
-	while (save_interpreter != NULL) {
-		RPG::SaveEventExecFrame save_commands;
-		save_commands.commands = save_interpreter->list;
-		save_commands.current_command = save_interpreter->index;
-		save_commands.ID = i++;
-		save_commands.event_id = event_id;
-		save_commands.triggered_by_decision_key = triggered_by_decision_key;
-		save.push_back(save_commands);
-		save_interpreter = static_cast<Game_Interpreter_Map*>(save_interpreter->child_interpreter.get());
-	}
-
-	return save;
 }
 
 /**
  * Execute Command.
  */
 bool Game_Interpreter_Map::ExecuteCommand() {
-	if (index >= list.size()) {
-		return CommandEnd();
-	}
+	auto* frame = GetFrame();
+	assert(frame);
+	const auto& list = frame->commands;
+	auto& index = frame->current_command;
+
+	assert(index < (int)list.size());
 
 	RPG::EventCommand const& com = list[index];
 
@@ -114,25 +96,29 @@ bool Game_Interpreter_Map::ExecuteCommand() {
 		case Cmd::EnemyEncounter:
 			return CommandEnemyEncounter(com);
 		case Cmd::VictoryHandler:
+			return CommandVictoryHandler(com);
 		case Cmd::EscapeHandler:
+			return CommandEscapeHandler(com);
 		case Cmd::DefeatHandler:
-			return SkipTo(Cmd::EndBattle);
+			return CommandDefeatHandler(com);
 		case Cmd::EndBattle:
-			return true;
+			return CommandEndBattle(com);
 		case Cmd::OpenShop:
 			return CommandOpenShop(com);
 		case Cmd::Transaction:
+			return CommandTransaction(com);
 		case Cmd::NoTransaction:
-			return SkipTo(Cmd::EndShop);
+			return CommandNoTransaction(com);
 		case Cmd::EndShop:
-			return true;
+			return CommandEndShop(com);
 		case Cmd::ShowInn:
 			return CommandShowInn(com);
 		case Cmd::Stay:
+			return CommandStay(com);
 		case Cmd::NoStay:
-			return SkipTo(Cmd::EndInn);
+			return CommandNoStay(com);
 		case Cmd::EndInn:
-			return true;
+			return CommandEndInn(com);
 		case Cmd::EnterHeroName:
 			return CommandEnterHeroName(com);
 		case Cmd::Teleport:
@@ -160,8 +146,7 @@ bool Game_Interpreter_Map::ExecuteCommand() {
 		case Cmd::ToggleAtbMode:
 			return CommandToggleAtbMode(com);
 		case Cmd::OpenVideoOptions:
-			Output::Warning("OpenVideoOptions: Command not supported");
-			return true;
+			return CommandOpenVideoOptions(com);
 		default:
 			return Game_Interpreter::ExecuteCommand();
 	}
@@ -171,6 +156,14 @@ bool Game_Interpreter_Map::ExecuteCommand() {
  * Commands
  */
 bool Game_Interpreter_Map::CommandRecallToLocation(RPG::EventCommand const& com) { // Code 10830
+	if (Game_Message::IsMessageActive()) {
+		return false;
+	}
+
+	auto* frame = GetFrame();
+	assert(frame);
+	auto& index = frame->current_command;
+
 	Game_Character *player = Main_Data::game_player.get();
 	int var_map_id = com.parameters[0];
 	int var_x = com.parameters[1];
@@ -179,7 +172,9 @@ bool Game_Interpreter_Map::CommandRecallToLocation(RPG::EventCommand const& com)
 	int x = Game_Variables.Get(var_x);
 	int y = Game_Variables.Get(var_y);
 
-	Main_Data::game_player->ReserveTeleport(map_id, x, y, -1);
+	auto tt = main_flag ? TeleportTarget::eForegroundTeleport : TeleportTarget::eParallelTeleport;
+
+	Main_Data::game_player->ReserveTeleport(map_id, x, y, -1, tt);
 
 	// Parallel events should keep on running in 2k and 2k3, unlike in later versions
 	if (!main_flag)
@@ -190,10 +185,15 @@ bool Game_Interpreter_Map::CommandRecallToLocation(RPG::EventCommand const& com)
 }
 
 bool Game_Interpreter_Map::CommandEnemyEncounter(RPG::EventCommand const& com) { // code 10710
-	if (Game_Message::visible) {
+	auto* frame = GetFrame();
+	assert(frame);
+	auto& index = frame->current_command;
+
+	if (Game_Message::IsMessageActive()) {
 		return false;
 	}
 
+	Game_Temp::battle_random_encounter = false;
 	Game_Temp::battle_troop_id = ValueOrVariable(com.parameters[0],
 		com.parameters[1]);
 	Game_Character *player = Main_Data::game_player.get();
@@ -230,64 +230,70 @@ bool Game_Interpreter_Map::CommandEnemyEncounter(RPG::EventCommand const& com) {
 	Scene::instance->SetRequestedScene(Scene::Battle);
 
 	SetContinuation(static_cast<ContinuationFunction>(&Game_Interpreter_Map::ContinuationEnemyEncounter));
+
+	// save game compatibility with RPG_RT
+	ReserveSubcommandIndex(com.indent);
+
+	++index;
 	return false;
 }
 
 bool Game_Interpreter_Map::ContinuationEnemyEncounter(RPG::EventCommand const& com) {
+	auto* frame = GetFrame();
+	assert(frame);
+	auto& index = frame->current_command;
+
 	continuation = NULL;
 
-	switch (Game_Temp::battle_result) {
-	case Game_Temp::BattleVictory:
-		if ((Game_Temp::battle_defeat_mode == 0 && Game_Temp::battle_escape_mode != 2) || !SkipTo(Cmd::VictoryHandler, Cmd::EndBattle)) {
-			index++;
-			return false;
-		}
-		index++;
-		return true;
-	case Game_Temp::BattleEscape:
-		switch (Game_Temp::battle_escape_mode) {
-		case 0:	// disallowed - shouldn't happen
-			return true;
-		case 1:
-			return CommandEndEventProcessing(com);
-		case 2:
-			if (!SkipTo(Cmd::EscapeHandler, Cmd::EndBattle)) {
-				index++;
-				return false;
-			}
-			index++;
-			return true;
-		default:
-			return false;
-		}
-	case Game_Temp::BattleDefeat:
-		switch (Game_Temp::battle_defeat_mode) {
-		case 0:
-			return CommandGameOver(com);
-		case 1:
-			if (!SkipTo(Cmd::DefeatHandler, Cmd::EndBattle)) {
-				index++;
-				return false;
-			}
-			index++;
-			return true;
-		default:
-			return false;
-		}
-	case Game_Temp::BattleAbort:
-		if (!SkipTo(Cmd::EndBattle)) {
-			index++;
-			return false;
-		}
-		index++;
-		return true;
-	default:
-		return false;
+	int sub_idx = subcommand_sentinel;
+
+	if (Game_Temp::battle_result == Game_Temp::BattleVictory) {
+		sub_idx = eOptionEnemyEncounterVictory;
 	}
+
+	if (Game_Temp::battle_result == Game_Temp::BattleEscape) {
+		sub_idx = eOptionEnemyEncounterEscape;
+		//FIXME: subidx set before this anyway??
+		if (Game_Temp::battle_escape_mode == 1) {
+			return CommandEndEventProcessing(com);
+		}
+	}
+
+	if (Game_Temp::battle_result == Game_Temp::BattleDefeat) {
+		sub_idx = eOptionEnemyEncounterDefeat;
+		//FIXME: subidx set before this anyway??
+		if (Game_Temp::battle_defeat_mode == 0) {
+			return CommandGameOver(com);
+		}
+	}
+
+	SetSubcommandIndex(com.indent, sub_idx);
+
+	return true;
+}
+
+bool Game_Interpreter_Map::CommandVictoryHandler(RPG::EventCommand const& com) { // code 20710
+	return CommandOptionGeneric(com, eOptionEnemyEncounterVictory, {Cmd::EscapeHandler, Cmd::DefeatHandler, Cmd::EndBattle});
+}
+
+bool Game_Interpreter_Map::CommandEscapeHandler(RPG::EventCommand const& com) { // code 20711
+	return CommandOptionGeneric(com, eOptionEnemyEncounterEscape, {Cmd::DefeatHandler, Cmd::EndBattle});
+}
+
+bool Game_Interpreter_Map::CommandDefeatHandler(RPG::EventCommand const& com) { // code 20712
+	return CommandOptionGeneric(com, eOptionEnemyEncounterDefeat, {Cmd::EndBattle});
+}
+
+bool Game_Interpreter_Map::CommandEndBattle(RPG::EventCommand const& com) { // code 20713
+	return true;
 }
 
 bool Game_Interpreter_Map::CommandOpenShop(RPG::EventCommand const& com) { // code 10720
-	if (Game_Message::visible) {
+	auto* frame = GetFrame();
+	assert(frame);
+	auto& index = frame->current_command;
+
+	if (Game_Message::IsMessageActive()) {
 		return false;
 	}
 
@@ -309,7 +315,8 @@ bool Game_Interpreter_Map::CommandOpenShop(RPG::EventCommand const& com) { // co
 	}
 
 	Game_Temp::shop_type = com.parameters[1];
-	Game_Temp::shop_handlers = com.parameters[2] != 0;
+	// Not used, but left here for documentation purposes
+	//bool has_shop_handlers = com.parameters[2] != 0;
 
 	Game_Temp::shop_goods.clear();
 	std::vector<int32_t>::const_iterator it;
@@ -319,39 +326,57 @@ bool Game_Interpreter_Map::CommandOpenShop(RPG::EventCommand const& com) { // co
 	Game_Temp::shop_transaction = false;
 	Scene::instance->SetRequestedScene(Scene::Shop);
 	SetContinuation(static_cast<ContinuationFunction>(&Game_Interpreter_Map::ContinuationOpenShop));
+
+	// save game compatibility with RPG_RT
+	ReserveSubcommandIndex(com.indent);
+
+	++index;
 	return false;
 }
 
-bool Game_Interpreter_Map::ContinuationOpenShop(RPG::EventCommand const& /* com */) {
+bool Game_Interpreter_Map::ContinuationOpenShop(RPG::EventCommand const& com) {
+	auto* frame = GetFrame();
+	assert(frame);
+	auto& index = frame->current_command;
+
 	continuation = nullptr;
-	if (!Game_Temp::shop_handlers) {
-		index++;
-		return true;
-	}
 
-	if (!SkipTo(Game_Temp::shop_transaction
-				? Cmd::Transaction
-				: Cmd::NoTransaction,
-				Cmd::EndShop)) {
-		return false;
-	}
+	int sub_idx = Game_Temp::shop_transaction ? eOptionShopTransaction : eOptionShopNoTransaction;
 
-	index++;
+	SetSubcommandIndex(com.indent, sub_idx);
+
+	return true;
+}
+
+bool Game_Interpreter_Map::CommandTransaction(RPG::EventCommand const& com) { // code 20720
+	return CommandOptionGeneric(com, eOptionShopTransaction, {Cmd::NoTransaction, Cmd::EndShop});
+}
+
+bool Game_Interpreter_Map::CommandNoTransaction(RPG::EventCommand const& com) { // code 20721
+	return CommandOptionGeneric(com, eOptionShopNoTransaction, {Cmd::EndShop});
+}
+
+bool Game_Interpreter_Map::CommandEndShop(RPG::EventCommand const& com) { // code 20722
 	return true;
 }
 
 bool Game_Interpreter_Map::CommandShowInn(RPG::EventCommand const& com) { // code 10730
 	int inn_type = com.parameters[0];
 	Game_Temp::inn_price = com.parameters[1];
-	Game_Temp::inn_handlers = com.parameters[2] != 0;
+	// Not used, but left here for documentation purposes
+	// bool has_inn_handlers = com.parameters[2] != 0;
 
 	if (Game_Temp::inn_price == 0) {
 		// Skip prompt.
 		Game_Message::choice_result = 0;
-		SetContinuation(static_cast<ContinuationFunction>(&Game_Interpreter_Map::ContinuationShowInnStart));
-		return false;
+		return ContinuationShowInnStart(com);
 	}
 
+	// Emulates RPG_RT behavior (Bug?) Inn's called by parallel events
+	// overwrite the current message.
+	if (main_flag && !Game_Message::CanShowMessage(main_flag)) {
+		return false;
+	}
 	Game_Message::message_waiting = true;
 
 	Game_Message::texts.clear();
@@ -379,9 +404,8 @@ bool Game_Interpreter_Map::CommandShowInn(RPG::EventCommand const& com) { // cod
 			}
 			else {
 				out << Data::terms.inn_a_greeting_1
-					<< " " << Game_Temp::inn_price
-					<< " " << Data::terms.gold
-					<< Data::terms.inn_a_greeting_2;
+					<< " " << Game_Temp::inn_price << Data::terms.gold
+					<< " " << Data::terms.inn_a_greeting_2;
 				Game_Message::texts.push_back(out.str());
 				Game_Message::texts.push_back(Data::terms.inn_a_greeting_3);
 			}
@@ -406,9 +430,8 @@ bool Game_Interpreter_Map::CommandShowInn(RPG::EventCommand const& com) { // cod
 			}
 			else {
 				out << Data::terms.inn_b_greeting_1
-					<< " " << Game_Temp::inn_price
-					<< " " << Data::terms.gold
-					<< Data::terms.inn_b_greeting_2;
+					<< " " << Game_Temp::inn_price << Data::terms.gold
+					<< " " << Data::terms.inn_b_greeting_2;
 				Game_Message::texts.push_back(out.str());
 				Game_Message::texts.push_back(Data::terms.inn_b_greeting_3);
 			}
@@ -434,6 +457,7 @@ bool Game_Interpreter_Map::CommandShowInn(RPG::EventCommand const& com) { // cod
 
 	Game_Message::choice_max = 2;
 	Game_Message::choice_disabled.reset();
+	Game_Message::choice_reset_color = true;
 	if (Main_Data::game_party->GetGold() < Game_Temp::inn_price)
 		Game_Message::choice_disabled.set(0);
 
@@ -441,10 +465,18 @@ bool Game_Interpreter_Map::CommandShowInn(RPG::EventCommand const& com) { // cod
 	Game_Message::choice_result = 4;
 
 	SetContinuation(static_cast<ContinuationFunction>(&Game_Interpreter_Map::ContinuationShowInnStart));
-	return false;
+
+	// save game compatibility with RPG_RT
+	ReserveSubcommandIndex(com.indent);
+
+	return true;
 }
 
-bool Game_Interpreter_Map::ContinuationShowInnStart(RPG::EventCommand const& /* com */) {
+bool Game_Interpreter_Map::ContinuationShowInnStart(RPG::EventCommand const& com) {
+	auto* frame = GetFrame();
+	assert(frame);
+	auto& index = frame->current_command;
+
 	if (Game_Message::visible) {
 		return false;
 	}
@@ -452,75 +484,38 @@ bool Game_Interpreter_Map::ContinuationShowInnStart(RPG::EventCommand const& /* 
 
 	bool inn_stay = Game_Message::choice_result == 0;
 
+	SetSubcommandIndex(com.indent, inn_stay ? eOptionInnStay : eOptionInnNoStay);
+
 	Game_Temp::inn_calling = false;
 
 	if (inn_stay) {
 		Main_Data::game_party->GainGold(-Game_Temp::inn_price);
 
-		// Full heal
-		std::vector<Game_Actor*> actors = Main_Data::game_party->GetActors();
-		for (Game_Actor* actor : actors) {
-			actor->RemoveAllStates();
-			actor->ChangeHp(actor->GetMaxHp());
-			actor->SetSp(actor->GetMaxSp());
-			// Emulates RPG_RT behavior of resetting even battle equipment states on full heal.
-			actor->ResetEquipmentStates(true);
-		}
-		Graphics::GetTransition().Init(Transition::TransitionFadeOut, Scene::instance.get(), 36, true);
-		Game_System::BgmFade(800);
-		SetContinuation(static_cast<ContinuationFunction>(&Game_Interpreter_Map::ContinuationShowInnContinue));
-		return false;
+		_async_op = AsyncOp::MakeCallInn();
+		return true;
 	}
 
-	if (Game_Temp::inn_handlers)
-		SkipTo(Cmd::NoStay, Cmd::EndInn);
-	index++;
 	return true;
 }
 
-bool Game_Interpreter_Map::ContinuationShowInnContinue(RPG::EventCommand const& /* com */) {
-	if (Graphics::IsTransitionPending())
-		return false;
-
-	const RPG::Music& bgm_inn = Game_System::GetSystemBGM(Game_System::BGM_Inn);
-	// FIXME: Abusing before_battle_music (Which is unused when calling an Inn)
-	// Is there also before_inn_music in the savegame?
-	Main_Data::game_data.system.before_battle_music = Game_System::GetCurrentBGM();
-
-	Game_System::BgmPlay(bgm_inn);
-
-	SetContinuation(static_cast<ContinuationFunction>(&Game_Interpreter_Map::ContinuationShowInnFinish));
-
-	return false;
+bool Game_Interpreter_Map::CommandStay(RPG::EventCommand const& com) { // code 20730
+	return CommandOptionGeneric(com, eOptionInnStay, {Cmd::NoStay, Cmd::EndInn});
 }
 
-bool Game_Interpreter_Map::ContinuationShowInnFinish(RPG::EventCommand const& /* com */) {
-	if (Graphics::IsTransitionPending())
-		return false;
+bool Game_Interpreter_Map::CommandNoStay(RPG::EventCommand const& com) { // code 20731
+	return CommandOptionGeneric(com, eOptionInnNoStay, {Cmd::EndInn});
+}
 
-	const RPG::Music& bgm_inn = Game_System::GetSystemBGM(Game_System::BGM_Inn);
-	if (bgm_inn.name.empty() ||
-		bgm_inn.name == "(OFF)" ||
-		bgm_inn.name == "(Brak)" ||
-		!Audio().BGM_IsPlaying() ||
-		Audio().BGM_PlayedOnce()) {
-
-		Game_System::BgmStop();
-		continuation = NULL;
-		Graphics::GetTransition().Init(Transition::TransitionFadeIn, Scene::instance.get(), 36, false);
-		Game_System::BgmPlay(Main_Data::game_data.system.before_battle_music);
-
-		if (Game_Temp::inn_handlers)
-			SkipTo(Cmd::Stay, Cmd::EndInn);
-		index++;
-		return false;
-	}
-
-	return false;
+bool Game_Interpreter_Map::CommandEndInn(RPG::EventCommand const& com) { // code 20732
+	return true;
 }
 
 bool Game_Interpreter_Map::CommandEnterHeroName(RPG::EventCommand const& com) { // code 10740
-	if (Game_Message::visible) {
+	auto* frame = GetFrame();
+	assert(frame);
+	auto& index = frame->current_command;
+
+	if (Game_Message::IsMessageActive()) {
 		return false;
 	}
 
@@ -546,9 +541,14 @@ bool Game_Interpreter_Map::CommandEnterHeroName(RPG::EventCommand const& com) { 
 
 bool Game_Interpreter_Map::CommandTeleport(RPG::EventCommand const& com) { // Code 10810
 																		   // TODO: if in battle return true
-	if (Game_Message::visible) {
+	if (Game_Message::IsMessageActive()) {
 		return false;
 	}
+
+	auto* frame = GetFrame();
+	assert(frame);
+	auto& index = frame->current_command;
+
 	int map_id = com.parameters[0];
 	int x = com.parameters[1];
 	int y = com.parameters[2];
@@ -556,7 +556,9 @@ bool Game_Interpreter_Map::CommandTeleport(RPG::EventCommand const& com) { // Co
 	// RPG2k3 feature
 	int direction = com.parameters.size() > 3 ? com.parameters[3] - 1 : -1;
 
-	Main_Data::game_player->ReserveTeleport(map_id, x, y, direction);
+	auto tt = main_flag ? TeleportTarget::eForegroundTeleport : TeleportTarget::eParallelTeleport;
+
+	Main_Data::game_player->ReserveTeleport(map_id, x, y, direction, tt);
 
 	// Parallel events should keep on running in 2k and 2k3, unlike in later versions
 	if (!main_flag)
@@ -603,21 +605,17 @@ bool Game_Interpreter_Map::CommandPanScreen(RPG::EventCommand const& com) { // c
 		break;
 	}
 
-	if (waiting_pan_screen)
-		wait_count = distance * (2 << (6 - speed));
+	if (waiting_pan_screen) {
+		_state.wait_time = distance * (2 << (6 - speed));
+	}
 
 	return true;
 }
 
 bool Game_Interpreter_Map::CommandShowBattleAnimation(RPG::EventCommand const& com) { // code 11210
-	if (waiting_battle_anim) {
-		waiting_battle_anim = Game_Map::IsBattleAnimationWaiting();
-		return !waiting_battle_anim;
-	}
-
 	int animation_id = com.parameters[0];
 	int evt_id = com.parameters[1];
-	waiting_battle_anim = com.parameters[2] > 0;
+	bool waiting_battle_anim = com.parameters[2] > 0;
 	bool global = com.parameters[3] > 0;
 
 	Game_Character* chara = GetCharacter(evt_id);
@@ -625,11 +623,15 @@ bool Game_Interpreter_Map::CommandShowBattleAnimation(RPG::EventCommand const& c
 		return true;
 
 	if (evt_id == Game_Character::CharThisEvent)
-		evt_id = event_id;
+		evt_id = GetThisEventId();
 
-	Game_Map::ShowBattleAnimation(animation_id, evt_id, global);
+	int frames = Main_Data::game_screen->ShowBattleAnimation(animation_id, evt_id, global);
 
-	return !waiting_battle_anim;
+	if (waiting_battle_anim) {
+		_state.wait_time = frames;
+	}
+
+	return true;
 }
 
 bool Game_Interpreter_Map::CommandFlashSprite(RPG::EventCommand const& com) { // code 11320
@@ -655,7 +657,8 @@ bool Game_Interpreter_Map::CommandFlashSprite(RPG::EventCommand const& com) { //
 }
 
 bool Game_Interpreter_Map::CommandProceedWithMovement(RPG::EventCommand const& /* com */) { // code 11340
-	return !Game_Map::IsAnyMovePending();
+	_state.wait_movement = true;
+	return true;
 }
 
 bool Game_Interpreter_Map::CommandHaltAllMovement(RPG::EventCommand const& /* com */) { // code 11350
@@ -664,6 +667,10 @@ bool Game_Interpreter_Map::CommandHaltAllMovement(RPG::EventCommand const& /* co
 }
 
 bool Game_Interpreter_Map::CommandPlayMovie(RPG::EventCommand const& com) { // code 11560
+	if (Game_Message::IsMessageActive()) {
+		return false;
+	}
+
 	const std::string& filename = com.string;
 	int pos_x = ValueOrVariable(com.parameters[0], com.parameters[1]);
 	int pos_y = ValueOrVariable(com.parameters[0], com.parameters[2]);
@@ -678,7 +685,11 @@ bool Game_Interpreter_Map::CommandPlayMovie(RPG::EventCommand const& com) { // c
 }
 
 bool Game_Interpreter_Map::CommandOpenSaveMenu(RPG::EventCommand const& /* com */) { // code 11910
-	if (Game_Message::visible) {
+	auto* frame = GetFrame();
+	assert(frame);
+	auto& index = frame->current_command;
+
+	if (Game_Message::IsMessageActive()) {
 		return false;
 	}
 
@@ -688,7 +699,11 @@ bool Game_Interpreter_Map::CommandOpenSaveMenu(RPG::EventCommand const& /* com *
 }
 
 bool Game_Interpreter_Map::CommandOpenMainMenu(RPG::EventCommand const& /* com */) { // code 11950
-	if (Game_Message::visible) {
+	auto* frame = GetFrame();
+	assert(frame);
+	auto& index = frame->current_command;
+
+	if (Game_Message::IsMessageActive()) {
 		return false;
 	}
 
@@ -698,7 +713,11 @@ bool Game_Interpreter_Map::CommandOpenMainMenu(RPG::EventCommand const& /* com *
 }
 
 bool Game_Interpreter_Map::CommandOpenLoadMenu(RPG::EventCommand const& /* com */) {
-	if (Game_Message::visible) {
+	auto* frame = GetFrame();
+	assert(frame);
+	auto& index = frame->current_command;
+
+	if (Game_Message::IsMessageActive()) {
 		return false;
 	}
 
@@ -709,6 +728,15 @@ bool Game_Interpreter_Map::CommandOpenLoadMenu(RPG::EventCommand const& /* com *
 
 bool Game_Interpreter_Map::CommandToggleAtbMode(RPG::EventCommand const& /* com */) {
 	Main_Data::game_data.system.atb_mode = !Main_Data::game_data.system.atb_mode;
+	return true;
+}
+
+bool Game_Interpreter_Map::CommandOpenVideoOptions(RPG::EventCommand const& com) {
+	if (Game_Message::IsMessageActive()) {
+		return false;
+	}
+
+	Output::Warning("OpenVideoOptions: Command not supported");
 	return true;
 }
 

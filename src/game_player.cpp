@@ -54,8 +54,8 @@ bool Game_Player::GetVisible() const {
 	return visible && !data()->aboard;
 }
 
-void Game_Player::ReserveTeleport(int map_id, int x, int y, int direction) {
-	teleport_target = TeleportTarget(map_id, x, y, direction);
+void Game_Player::ReserveTeleport(int map_id, int x, int y, int direction, TeleportTarget::Type tt) {
+	teleport_target = TeleportTarget(map_id, x, y, direction, tt);
 }
 
 void Game_Player::ReserveTeleport(const RPG::SaveTarget& target) {
@@ -66,12 +66,17 @@ void Game_Player::ReserveTeleport(const RPG::SaveTarget& target) {
 		map_id = Game_Map::GetParentId(target.map_id);
 	}
 
-	ReserveTeleport(map_id, target.map_x, target.map_y, Down);
+	ReserveTeleport(map_id, target.map_x, target.map_y, Down, TeleportTarget::eSkillTeleport);
 
 	if (target.switch_on) {
 		Game_Switches.Set(target.switch_id, true);
 		Game_Map::SetNeedRefresh(Game_Map::Refresh_All);
 	}
+
+	// FIXME: Fixes emscripten, but this should be done in Continue/Resume in scene_map
+	FileRequestAsync* request = Game_Map::RequestMap(target.map_id);
+	request->SetImportantFile(true);
+	request->Start();
 }
 
 void Game_Player::PerformTeleport() {
@@ -91,7 +96,7 @@ void Game_Player::PerformTeleport() {
 
 	ResetAnimation();
 	if (Game_Map::GetMapId() != teleport_target.GetMapId()) {
-		Game_Map::Setup(teleport_target.GetMapId());
+		Game_Map::Setup(teleport_target.GetMapId(), teleport_target.GetType());
 	} else {
 		Game_Map::SetupFromTeleportSelf();
 	}
@@ -111,7 +116,7 @@ void Game_Player::PerformTeleport() {
 		GetVehicle()->SyncWithPlayer();
 	}
 
-	teleport_target = {};
+	ResetTeleportTarget();
 }
 
 bool Game_Player::MakeWay(int x, int y) const {
@@ -255,8 +260,7 @@ void Game_Player::UpdateSelfMovement() {
 
 	if (!is_boarding
 			&& !Game_Map::GetInterpreter().IsRunning()
-			&& !Game_Message::message_waiting
-			&& !Game_Message::visible
+			&& !Game_Message::IsMessageActive()
 			&& !IsMoveRouteOverwritten()
 			&& !IsPaused() // RPG_RT compatible logic, but impossible to set pause on player
 			&& !did_call_encounter
@@ -315,8 +319,7 @@ void Game_Player::UpdateSelfMovement() {
 
 	// ESC-Menu calling
 	if (Game_System::GetAllowMenu()
-			&& !Game_Message::message_waiting
-			&& !Game_Message::visible
+			&& !Game_Message::IsMessageActive()
 			&& !Game_Map::GetInterpreter().IsRunning())
 	{
 		if (Input::IsTriggered(Input::CANCEL)) {
@@ -445,15 +448,13 @@ void Game_Player::Refresh() {
 	Game_Actor* actor;
 
 	if (Main_Data::game_party->GetActors().empty()) {
-		SetSpriteName("");
-		SetSpriteIndex(0);
+		SetSpriteGraphic("", 0);
 		return;
 	}
 
 	actor = Main_Data::game_party->GetActors()[0];
 
-	SetSpriteName(actor->GetSpriteName());
-	SetSpriteIndex(actor->GetSpriteIndex());
+	SetSpriteGraphic(actor->GetSpriteName(), actor->GetSpriteIndex());
 
 	if (data()->aboard)
 		GetVehicle()->SyncWithPlayer();

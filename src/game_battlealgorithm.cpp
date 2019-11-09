@@ -223,8 +223,7 @@ void Game_BattleAlgorithm::AlgorithmBase::PlayAnimation(bool on_source) {
 	}
 
 	if (on_source) {
-		std::vector<Game_Battler*> anim_targets = { GetSource() };
-		Game_Battle::ShowBattleAnimation(GetAnimation()->ID, anim_targets);
+		Game_Battle::ShowBattleAnimation(GetAnimation()->ID, { GetSource() });
 		has_animation_played = true;
 		return;
 	}
@@ -253,8 +252,7 @@ void Game_BattleAlgorithm::AlgorithmBase::PlaySecondAnimation(bool on_source) {
 	}
 
 	if (on_source) {
-		std::vector<Game_Battler*> anim_targets = { GetSource() };
-		Game_Battle::ShowBattleAnimation(GetSecondAnimation()->ID, anim_targets);
+		Game_Battle::ShowBattleAnimation(GetSecondAnimation()->ID, { GetSource() });
 		has_animation2_played = true;
 		return;
 	}
@@ -283,8 +281,7 @@ void Game_BattleAlgorithm::AlgorithmBase::PlaySoundAnimation(bool on_source, int
 	}
 
 	if (on_source) {
-		std::vector<Game_Battler*> anim_targets = { GetSource() };
-		Game_Battle::ShowBattleAnimation(GetAnimation()->ID, anim_targets, false, true, cutoff);
+		Game_Battle::ShowBattleAnimation(GetAnimation()->ID, { GetSource() }, true, cutoff);
 		return;
 	}
 
@@ -299,7 +296,7 @@ void Game_BattleAlgorithm::AlgorithmBase::PlaySoundAnimation(bool on_source, int
 
 	Game_Battle::ShowBattleAnimation(
 		GetAnimation()->ID,
-		anim_targets, false, true, cutoff);
+		anim_targets, true, cutoff);
 
 	current_target = old_current_target;
 	first_attack = old_first_attack;
@@ -839,6 +836,25 @@ int Game_BattleAlgorithm::AlgorithmBase::GetPhysicalDamageRate() const {
 bool Game_BattleAlgorithm::AlgorithmBase::IsReflected() const {
 	return false;
 }
+
+Game_BattleAlgorithm::Null::Null(Game_Battler* source) :
+AlgorithmBase(Type::Null, source) {
+	// no-op
+}
+
+std::string Game_BattleAlgorithm::Null::GetStartMessage() const {
+	return "";
+}
+
+bool Game_BattleAlgorithm::Null::Execute() {
+	this->success = true;
+	return true;
+}
+
+void Game_BattleAlgorithm::Null::Apply() {
+	ApplyActionSwitches();
+}
+
 
 Game_BattleAlgorithm::Normal::Normal(Game_Battler* source, Game_Battler* target) :
 	AlgorithmBase(Type::Normal, source, target)
@@ -1827,8 +1843,8 @@ void Game_BattleAlgorithm::SelfDestruct::Apply() {
 	}
 }
 
-Game_BattleAlgorithm::Escape::Escape(Game_Battler* source) :
-	AlgorithmBase(Type::Escape, source) {
+Game_BattleAlgorithm::Escape::Escape(Game_Battler* source, bool always_succeed) :
+	AlgorithmBase(Type::Escape, source), always_succeed(always_succeed) {
 	// no-op
 }
 
@@ -1874,9 +1890,7 @@ bool Game_BattleAlgorithm::Escape::Execute() {
 	// Monsters always escape
 	this->success = true;
 
-	// TODO: Preemptive attack has 100% escape ratio
-
-	if (source->GetType() == Game_Battler::Type_Ally) {
+	if (source->GetType() == Game_Battler::Type_Ally && !always_succeed) {
 		int ally_agi = Main_Data::game_party->GetAverageAgility();
 		int enemy_agi = Main_Data::game_enemyparty->GetAverageAgility();
 
@@ -1885,7 +1899,7 @@ bool Game_BattleAlgorithm::Escape::Execute() {
 		float to_hit = std::max(0.0f, 1.5f - ((float)enemy_agi / ally_agi));
 
 		// Every failed escape is worth 10% higher escape chance
-		to_hit += Game_Battle::escape_fail_count * 0.1f;
+		to_hit += Game_Battle::GetEscapeFailureCount() * 0.1f;
 
 		to_hit *= 100;
 		this->success = Utils::PercentChance((int)to_hit);
@@ -1896,7 +1910,7 @@ bool Game_BattleAlgorithm::Escape::Execute() {
 
 void Game_BattleAlgorithm::Escape::Apply() {
 	if (!this->success) {
-		Game_Battle::escape_fail_count += 1;
+		Game_Battle::IncEscapeFailureCount();
 	}
 
 	if (source->GetType() == Game_Battler::Type_Enemy) {
@@ -1942,20 +1956,6 @@ AlgorithmBase(Type::NoMove, source) {
 }
 
 std::string Game_BattleAlgorithm::NoMove::GetStartMessage() const {
-	const std::vector<int16_t>& states = source->GetStates();
-
-	for (std::vector<int16_t>::const_iterator it = states.begin();
-		it != states.end(); ++it) {
-		if (Data::states[*it].restriction == RPG::State::Restriction_do_nothing) {
-			std::string msg = Data::states[*it].message_affected;
-			if (!msg.empty()) {
-				return source->GetName() + msg;
-			}
-			return "";
-		}
-	}
-
-	// State was healed before the actor got his turn
 	return "";
 }
 

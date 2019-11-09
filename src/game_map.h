@@ -29,13 +29,39 @@
 #include "rpg_encounter.h"
 #include "rpg_map.h"
 #include "rpg_mapinfo.h"
+#include "async_op.h"
 
 class FileRequestAsync;
+class Window_Message;
 
 // These are in sixteenths of a pixel.
 constexpr int SCREEN_TILE_SIZE = 256;
 constexpr int SCREEN_WIDTH = 20 * SCREEN_TILE_SIZE;
 constexpr int SCREEN_HEIGHT = 15 * SCREEN_TILE_SIZE;
+
+class MapUpdateAsyncContext {
+	public:
+		MapUpdateAsyncContext() = default;
+
+		static MapUpdateAsyncContext FromCommonEvent(int ce, AsyncOp aop);
+		static MapUpdateAsyncContext FromMapEvent(int ce, AsyncOp aop);
+		static MapUpdateAsyncContext FromForegroundEvent(AsyncOp aop);
+
+		AsyncOp GetAsyncOp() const;
+
+		int GetParallelCommonEvent() const;
+		int GetParallelMapEvent() const;
+
+		bool IsForegroundEvent() const;
+		bool IsParallelCommonEvent() const;
+		bool IsParallelMapEvent() const;
+		bool IsActive() const;
+	private:
+		int common_event = 0;
+		int map_event = 0;
+		AsyncOp async_op = {};
+		bool foreground_event = 0;
+};
 
 /**
  * Game_Map namespace
@@ -59,15 +85,18 @@ namespace Game_Map {
 
 	/**
 	 * Disposes Game_Map.
+	 *
+	 * @param clear_screen clear the screen.
 	 */
-	void Dispose();
+	void Dispose(bool clear_screen = true);
 
 	/**
 	 * Setups a map.
 	 *
 	 * @param map_id map ID.
+	 * @param tt the type of teleport used to setup the map
 	 */
-	void Setup(int map_id);
+	void Setup(int map_id, TeleportTarget::Type tt);
 
 	/**
 	 * Setups a map from a savegame.
@@ -102,6 +131,9 @@ namespace Game_Map {
 	 * Refreshes the map.
 	 */
 	void Refresh();
+
+	/** Actions to perform after finishing a battle */
+	void OnContinueFromBattle();
 
 	/**
 	 * Scrolls the map view right.
@@ -220,9 +252,13 @@ namespace Game_Map {
 	/**
 	 * Updates the map state.
 	 *
+	 * @param actx asynchronous operations context. In out param.
+	 *        If IsActive() when passed in, will resume to that point.
+	 *        If IsActive() after return in, will suspend from that point.
+	 * @param the scene message window
 	 * @param is_preupdate Update only common events and map events
 	 */
-	void Update(bool is_preupdate = false);
+	void Update(MapUpdateAsyncContext& actx, Window_Message& message, bool is_preupdate = false);
 
 	/**
 	 * Gets current map_info.
@@ -324,20 +360,6 @@ namespace Game_Map {
 	void SetupBattle();
 
 	/**
-	 * Plays the given animation against a character.
-	 *
-	 * @param animation_id the animation ID
-	 * @param target_id the ID of the targeted character
-	 * @param global whether to "show on the entire map"
-	 */
-	void ShowBattleAnimation(int animation_id, int target_id, bool global);
-
-	/**
-	 * Whether or not a battle animation is currently playing.
-	 */
-	bool IsBattleAnimationWaiting();
-
-	/**
 	 * Gets lower layer map data.
 	 *
 	 * @return lower layer map data.
@@ -437,13 +459,6 @@ namespace Game_Map {
 	Game_Interpreter_Map& GetInterpreter();
 
 	/**
-	 * Destroy an interpreter after all events and common events have been updated.
-	 *
-	 * @param interpreter to destroy.
-	 */
-	void ReserveInterpreterDeletion(std::shared_ptr<Game_Interpreter> interpreter);
-
-	/**
 	 * Sets the need refresh flag.
 	 *
 	 * @param refresh_mode need refresh state.
@@ -501,6 +516,14 @@ namespace Game_Map {
 	std::vector<Game_CommonEvent>& GetCommonEvents();
 
 	void GetEventsXY(std::vector<Game_Event*>& events, int x, int y);
+
+	/**
+	 * @param x x position on the map
+	 * @param y y position on the map
+	 * @param require_active If true, ignore events which are not active.
+	 * @return the event with the highest id at (x,y)
+	 */
+	Game_Event* GetEventAt(int x, int y, bool require_active);
 
 	bool LoopHorizontal();
 	bool LoopVertical();
@@ -615,6 +638,11 @@ namespace Game_Map {
 	int GetTargetPanX();
 	int GetTargetPanY();
 
+	void UpdateProcessedFlags(bool is_preupdate);
+	bool UpdateCommonEvents(MapUpdateAsyncContext& actx);
+	bool UpdateMapEvents(MapUpdateAsyncContext& actx);
+	bool UpdateForegroundEvents(MapUpdateAsyncContext& actx, Window_Message& message);
+
 	FileRequestAsync* RequestMap(int map_id);
 
 	namespace Parallax {
@@ -679,6 +707,63 @@ namespace Game_Map {
 		 */
 		void ClearChangedBG();
 	}
+}
+
+
+inline AsyncOp MapUpdateAsyncContext::GetAsyncOp() const {
+	return async_op;
+}
+
+inline MapUpdateAsyncContext MapUpdateAsyncContext::FromCommonEvent(int ce, AsyncOp aop) {
+	MapUpdateAsyncContext actx;
+	if (aop.IsActive()) {
+		actx.async_op = aop;
+		actx.common_event = ce;
+	}
+	return actx;
+}
+
+inline MapUpdateAsyncContext MapUpdateAsyncContext::FromMapEvent(int ev, AsyncOp aop) {
+	MapUpdateAsyncContext actx;
+	if (aop.IsActive()) {
+		actx.async_op = aop;
+		actx.map_event = ev;
+	}
+	return actx;
+}
+
+inline MapUpdateAsyncContext MapUpdateAsyncContext::FromForegroundEvent(AsyncOp aop) {
+	MapUpdateAsyncContext actx;
+	if (aop.IsActive()) {
+		actx.async_op = aop;
+		actx.foreground_event = true;
+	}
+	return actx;
+}
+
+inline int MapUpdateAsyncContext::GetParallelCommonEvent() const {
+	return common_event;
+}
+
+inline int MapUpdateAsyncContext::GetParallelMapEvent() const {
+	return map_event;
+}
+
+inline bool MapUpdateAsyncContext::IsForegroundEvent() const {
+	return foreground_event;
+}
+
+inline bool MapUpdateAsyncContext::IsParallelCommonEvent() const {
+	return common_event > 0;
+}
+
+inline bool MapUpdateAsyncContext::IsParallelMapEvent() const {
+	return map_event > 0;
+}
+
+
+inline bool MapUpdateAsyncContext::IsActive() const {
+	return GetAsyncOp().IsActive();
 }
 
 #endif

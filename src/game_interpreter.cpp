@@ -20,6 +20,7 @@
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <cassert>
 #include "game_interpreter.h"
 #include "audio.h"
 #include "filefinder.h"
@@ -51,6 +52,9 @@
 #include "utils.h"
 #include "transition.h"
 
+enum BranchSubcommand {
+	eOptionBranchElse = 1
+};
 //netherware fix: steamshim
 #ifdef STEAMSHIM
 #   include "../steamshim/steamshim_child.h"
@@ -69,19 +73,12 @@ namespace {
 	static Game_Interpreter* transition_owner = nullptr;
 }
 
-// 10000 based on: https://gist.github.com/4406621
-constexpr int loop_limit = 10000;
+constexpr int Game_Interpreter::loop_limit;
+constexpr int Game_Interpreter::call_stack_limit;
+constexpr int Game_Interpreter::subcommand_sentinel;
 
-Game_Interpreter::Game_Interpreter(int _depth, bool _main_flag) {
-	depth = _depth;
+Game_Interpreter::Game_Interpreter(bool _main_flag) {
 	main_flag = _main_flag;
-	index = 0;
-	updating = false;
-	clear_child = false;
-
-	if (depth > 100) {
-		Output::Warning("Interpreter: Maximum callstack depth (100) exceeded");
-	}
 
 	Clear();
 }
@@ -91,66 +88,166 @@ Game_Interpreter::~Game_Interpreter() {
 
 // Clear.
 void Game_Interpreter::Clear() {
-	map_id = 0;						// map ID when starting up
-	event_id = 0;					// event ID
-	wait_count = 0;					// wait count
-	waiting_battle_anim = false;
-	triggered_by_decision_key = false;
 	continuation = NULL;			// function to execute to resume command
-	button_timer = 0;
-	wait_messages = false;			// wait if message window is visible
-	if (child_interpreter) {		// clear child interpreter for called events
-		if (child_interpreter->updating)
-			clear_child = true;
-		else
-			child_interpreter.reset();
-	}
-	list.clear();
+	_state = {};
+	_keyinput = {};
+	_async_op = {};
 }
 
 // Is interpreter running.
 bool Game_Interpreter::IsRunning() const {
-	return !list.empty();
+	return !_state.stack.empty();
 }
 
 // Setup.
-void Game_Interpreter::Setup(
+void Game_Interpreter::Push(
 	const std::vector<RPG::EventCommand>& _list,
-	int _event_id,
+	int event_id,
 	bool started_by_decision_key
 ) {
-	Clear();
-
-	map_id = Game_Map::GetMapId();
-	event_id = _event_id;
-
-	if (depth <= 100) {
-		list = _list;
+	if (_list.empty()) {
+		return;
 	}
 
-	triggered_by_decision_key = started_by_decision_key;
+	if ((int)_state.stack.size() > call_stack_limit) {
+		Output::Error("Call Event limit (%d) has been exceeded", call_stack_limit);
+	}
 
-	index = 0;
+	RPG::SaveEventExecFrame frame;
+	frame.ID = _state.stack.size() + 1;
+	frame.commands = _list;
+	frame.current_command = 0;
+	frame.triggered_by_decision_key = started_by_decision_key;
+	frame.event_id = event_id;
 
-	CancelMenuCall();
-
-	if (main_flag && depth == 0) {
+	if (_state.stack.empty() && main_flag) {
 		Game_Message::SetFaceName("");
 		Main_Data::game_player->SetMenuCalling(false);
 		Main_Data::game_player->SetEncounterCalling(false);
 	}
+
+	_state.stack.push_back(std::move(frame));
 }
 
-void Game_Interpreter::CancelMenuCall() {
-	// TODO
+
+void Game_Interpreter::KeyInputState::fromSave(const RPG::SaveEventExecState& save) {
+	*this = {};
+
+	wait = save.keyinput_wait;
+	// FIXME: There is an RPG_RT bug where keyinput_variable is uint8_t
+	// which we currently have to emulate. So the value from the save could be wrong.
+	variable = save.keyinput_variable;
+
+	if (save.keyinput_all_directions) {
+		keys[Keys::eDown] = true;
+		keys[Keys::eLeft] = true;
+		keys[Keys::eRight] = true;
+		keys[Keys::eUp] = true;
+	} else {
+		if (Player::IsRPG2k3()) {
+			keys[Keys::eDown] = save.keyinput_2k3down;
+			keys[Keys::eLeft] = save.keyinput_2k3left;
+			keys[Keys::eRight] = save.keyinput_2k3right;
+			keys[Keys::eUp] = save.keyinput_2k3up;
+		} else {
+			keys[Keys::eDown] = save.keyinput_2kdown_2k3operators	;
+			keys[Keys::eLeft] = save.keyinput_2kleft_2k3shift;
+			keys[Keys::eRight] = save.keyinput_2kright;
+			keys[Keys::eUp] = save.keyinput_2kup;
+		}
+	}
+
+	keys[Keys::eDecision] = save.keyinput_decision;
+	keys[Keys::eCancel] = save.keyinput_cancel;
+
+	if (Player::IsRPG2k3()) {
+		keys[Keys::eShift] = save.keyinput_2kleft_2k3shift;
+		keys[Keys::eNumbers] = save.keyinput_2kshift_2k3numbers;
+		keys[Keys::eOperators] = save.keyinput_2kdown_2k3operators;
+	} else {
+		keys[Keys::eShift] = save.keyinput_2kshift_2k3numbers;
+	}
+
+	time_variable = save.keyinput_time_variable;
+	timed = save.keyinput_timed;
+	// FIXME: Rm2k3 has no LSD chunk for this.
+	wait_frames = 0;
 }
+
+void Game_Interpreter::KeyInputState::toSave(RPG::SaveEventExecState& save) const {
+	save.keyinput_wait = 0;
+	save.keyinput_variable = 0;
+	save.keyinput_all_directions = 0;
+	save.keyinput_decision = 0;
+	save.keyinput_cancel = 0;
+	save.keyinput_2kshift_2k3numbers = 0;
+	save.keyinput_2kdown_2k3operators = 0;
+	save.keyinput_2kleft_2k3shift = 0;
+	save.keyinput_2kright = 0;
+	save.keyinput_2kup = 0;
+	save.keyinput_time_variable = 0;
+	save.keyinput_2k3down = 0;
+	save.keyinput_2k3left = 0;
+	save.keyinput_2k3right = 0;
+	save.keyinput_2k3up = 0;
+	save.keyinput_timed = 0;
+
+	save.keyinput_wait = wait;
+	// FIXME: There is an RPG_RT bug where keyinput_variable is uint8_t
+	// which we currently have to emulate. So this assignment truncates.
+	save.keyinput_variable = variable;
+
+	if (keys[Keys::eDown]
+			&& keys[Keys::eLeft]
+			&& keys[Keys::eRight]
+			&& keys[Keys::eUp]) {
+		save.keyinput_all_directions = true;
+	} else {
+		if (Player::IsRPG2k3()) {
+			save.keyinput_2k3down = keys[Keys::eDown];
+			save.keyinput_2k3left = keys[Keys::eLeft];
+			save.keyinput_2k3right = keys[Keys::eRight];
+			save.keyinput_2k3up = keys[Keys::eUp];
+		} else {
+			// RM2k uses these chunks for directions.
+			save.keyinput_2kdown_2k3operators = keys[Keys::eDown];
+			save.keyinput_2kleft_2k3shift = keys[Keys::eLeft];
+			save.keyinput_2kright = keys[Keys::eRight];
+			save.keyinput_2kup = keys[Keys::eUp];
+		}
+	}
+
+	save.keyinput_decision = keys[Keys::eDecision];
+	save.keyinput_cancel = keys[Keys::eCancel];
+
+	if (Player::IsRPG2k3()) {
+		save.keyinput_2kleft_2k3shift = keys[Keys::eShift];
+		save.keyinput_2kshift_2k3numbers = keys[Keys::eNumbers];
+		save.keyinput_2kdown_2k3operators = keys[Keys::eOperators];
+	} else {
+		save.keyinput_2kshift_2k3numbers = keys[Keys::eShift];
+	}
+
+	save.keyinput_time_variable = time_variable;
+	save.keyinput_timed = timed;
+	// FIXME: Rm2k3 has no LSD chunk for this.
+	//void = wait_frames;
+}
+
+
+RPG::SaveEventExecState Game_Interpreter::GetState() const {
+	auto save = _state;
+	_keyinput.toSave(save);
+	return save;
+}
+
 
 void Game_Interpreter::SetupWait(int duration) {
 	if (duration == 0) {
 		// 0.0 waits 1 frame
-		wait_count = 1;
+		_state.wait_time = 1;
 	} else {
-		wait_count = duration * DEFAULT_FPS / 10;
+		_state.wait_time = duration * DEFAULT_FPS / 10;
 	}
 }
 
@@ -162,38 +259,76 @@ bool Game_Interpreter::ReachedLoopLimit() const {
 	return loop_count >= loop_limit;
 }
 
-// Update
-void Game_Interpreter::Update(bool reset_loop_count) {
-	updating = true;
-	if (reset_loop_count) {
-		loop_count = 0;
-	}
-	for (; loop_count < loop_limit; ++loop_count) {
-		/* If map is different than event startup time
-		set event_id to 0 */
-		if (Game_Map::GetMapId() != map_id) {
-			event_id = 0;
-		}
+int Game_Interpreter::GetThisEventId() const {
+	auto event_id = GetCurrentEventId();
 
-		/* If there's any active child interpreter, update it */
-		if (child_interpreter) {
-
-			child_interpreter->Update();
-
-			if (!child_interpreter->IsRunning() || clear_child) {
-				child_interpreter.reset();
-				clear_child = false;
-			}
-
-			// If child interpreter still exists
-			if (child_interpreter) {
+	if (event_id == 0 && Player::IsRPG2k3E()) {
+		// RM2k3E allows "ThisEvent" commands to run from called
+		// common events. It operates on the last map event in
+		// the call stack.
+		for (auto iter = _state.stack.rbegin()++;
+				iter != _state.stack.rend(); ++iter) {
+			if (iter->event_id != 0) {
+				event_id = iter->event_id;
 				break;
 			}
 		}
+	}
 
+	return event_id;
+}
+
+uint8_t& Game_Interpreter::ReserveSubcommandIndex(int indent) {
+	auto* frame = GetFrame();
+	assert(frame);
+
+	auto& path = frame->subcommand_path;
+	if (indent >= (int)path.size()) {
+		// This fixes an RPG_RT bug where RPG_RT would resize
+		// the array with uninitialized values.
+		path.resize(indent + 1, subcommand_sentinel);
+	}
+	return path[indent];
+}
+
+void Game_Interpreter::SetSubcommandIndex(int indent, int idx) {
+	ReserveSubcommandIndex(indent) = idx;
+}
+
+int Game_Interpreter::GetSubcommandIndex(int indent) const {
+	auto* frame = GetFrame();
+	if (frame == nullptr) {
+		return subcommand_sentinel;
+	}
+	auto& path = frame->subcommand_path;
+	if ((int)path.size() <= indent) {
+		return subcommand_sentinel;
+	}
+	return path[indent];
+}
+
+// Update
+void Game_Interpreter::Update(bool reset_loop_count) {
+	if (reset_loop_count) {
+		loop_count = 0;
+	}
+
+	// Always reset async status when we enter interpreter loop.
+	_async_op = {};
+
+	if (!IsRunning()) {
+		return;
+	}
+
+	for (; loop_count < loop_limit; ++loop_count) {
 		// If something is calling a menu, we're allowed to execute only 1 command per interpreter. So we pass through if loop_count == 0, and stop at 1 or greater.
 		// RPG_RT compatible behavior.
 		if (loop_count > 0 && Scene::instance->HasRequestedScene()) {
+			break;
+		}
+
+		// Previous command triggered an async operation.
+		if (IsAsyncPending()) {
 			break;
 		}
 
@@ -207,30 +342,57 @@ void Game_Interpreter::Update(bool reset_loop_count) {
 			if (Game_Message::message_waiting)
 				break;
 		} else {
-			if ((Game_Message::visible || Game_Message::message_waiting) && wait_messages)
+			if ((Game_Message::IsMessageActive()) && _state.show_message) {
 				break;
+			}
 		}
 
-		if (Game_Temp::transition_processing) {
+		_state.show_message = false;
+
+		if (_state.wait_time > 0) {
+			_state.wait_time--;
 			break;
 		}
 
-		if (transition_owner && transition_owner != this) {
-			break;
-		} else {
-			transition_owner = nullptr;
+		if (_state.wait_key_enter) {
+			if (!Input::IsTriggered(Input::DECISION)) {
+				break;
+			}
+			_state.wait_key_enter = false;
 		}
 
-		if (wait_count > 0) {
-			wait_count--;
-			break;
+		if (_state.wait_movement) {
+			if (Game_Map::IsAnyMovePending()) {
+				break;
+			}
+			_state.wait_movement = false;
 		}
 
-		if (Game_Temp::to_title) {
+		if (_keyinput.wait) {
+			const int key = _keyinput.CheckInput();
+			Game_Variables.Set(_keyinput.variable, key);
+			Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
+			if (key == 0) {
+				++_keyinput.wait_frames;
+				break;
+			}
+			if (_keyinput.timed) {
+				// 10 per second
+				Game_Variables.Set(_keyinput.time_variable,
+						(_keyinput.wait_frames * 10) / Graphics::GetDefaultFps());
+			}
+			_keyinput.wait = false;
+		}
+
+		auto* frame = GetFrame();
+		if (frame == nullptr) {
 			break;
 		}
 
 		if (continuation) {
+			const auto& list = frame->commands;
+			auto& index = frame->current_command;
+
 			bool result;
 			if (index >= list.size()) {
 				result = (this->*continuation)(RPG::EventCommand());
@@ -238,20 +400,39 @@ void Game_Interpreter::Update(bool reset_loop_count) {
 				result = (this->*continuation)(list[index]);
 			}
 
-			if (result)
-				continue;
-			else
+			if (!result) {
 				break;
+			}
+		}
+
+		// continuation triggered an async operation.
+		if (IsAsyncPending()) {
+			break;
 		}
 
 		if (Game_Map::GetNeedRefresh()) {
 			Game_Map::Refresh();
 		}
 
-		if (list.empty()) {
+		// Previous operations could have modified the stack.
+		// So we need to fetch the frame again.
+		frame = GetFrame();
+		if (frame == nullptr) {
 			break;
 		}
 
+		// Pop any completed stack frames
+		if (frame->current_command >= (int)frame->commands.size()) {
+			if (!OnFinishStackFrame()) {
+				break;
+			}
+			continue;
+		}
+
+		// Save the frame index before we call events.
+		int current_frame_idx = _state.stack.size() - 1;
+
+		const int index_before_exec = frame->current_command;
 		if (!ExecuteCommand()) {
 			break;
 		}
@@ -261,20 +442,28 @@ void Game_Interpreter::Update(bool reset_loop_count) {
 			break;
 		}
 
-		// FIXME?
-		// After calling SkipTo this index++ will skip execution of e.g. END.
-		// This causes a different timing because loop_count reaches 10000
-		// faster then Player does.
-		// No idea if any game depends on this special case.
-		index++;
+		// Last event command removed the frame? We're done.
+		if (current_frame_idx >= (int)_state.stack.size() ) {
+			continue;
+		}
+
+		// Note: In the case we executed a CallEvent command, be sure to
+		// increment the old frame and not the new one we just pushed.
+		frame = &_state.stack[current_frame_idx];
+
+		// Only do auto increment if the command didn't manually
+		// change the index.
+		if (index_before_exec == frame->current_command) {
+			frame->current_command++;
+		}
 	} // for
 
 	if (loop_count > loop_limit - 1) {
+		auto* frame = GetFrame();
+		int event_id = frame ? frame->event_id : 0;
 		// Executed Events Count exceeded (10000)
 		Output::Debug("Event %d exceeded execution limit", event_id);
 	}
-
-	updating = false;
 
 	if (Game_Map::GetNeedRefresh()) {
 		Game_Map::Refresh();
@@ -282,16 +471,12 @@ void Game_Interpreter::Update(bool reset_loop_count) {
 }
 
 // Setup Starting Event
-void Game_Interpreter::Setup(Game_Event* ev) {
-	Setup(ev->GetList(), ev->GetId(), ev->WasStartedByDecisionKey());
-	event_info.x = ev->GetX();
-	event_info.y = ev->GetY();
-	event_info.page = ev->GetActivePage();
+void Game_Interpreter::Push(Game_Event* ev) {
+	Push(ev->GetList(), ev->GetId(), ev->WasStartedByDecisionKey());
 }
 
-void Game_Interpreter::Setup(Game_CommonEvent* ev, int caller_id) {
-	Setup(ev->GetList(), caller_id, false);
-	event_info.x = ev->GetIndex();
+void Game_Interpreter::Push(Game_CommonEvent* ev) {
+	Push(ev->GetList(), 0, false);
 }
 
 void Game_Interpreter::CheckGameOver() {
@@ -303,32 +488,25 @@ void Game_Interpreter::CheckGameOver() {
 	}
 }
 
-// Skip to command.
-bool Game_Interpreter::SkipTo(int code, int code2, int min_indent, int max_indent, bool otherwise_end) {
-	if (code2 < 0)
-		code2 = code;
-	if (min_indent < 0)
-		min_indent = list[index].indent;
-	if (max_indent < 0)
-		max_indent = list[index].indent;
+void Game_Interpreter::SkipToNextConditional(std::initializer_list<int> codes, int indent) {
+	auto* frame = GetFrame();
+	assert(frame);
+	const auto& list = frame->commands;
+	auto& index = frame->current_command;
 
-	int idx;
-	for (idx = index; (size_t) idx < list.size(); idx++) {
-		if (list[idx].indent < min_indent)
-			return false;
-		if (list[idx].indent > max_indent)
-			continue;
-		if (list[idx].code != code &&
-			list[idx].code != code2)
-			continue;
-		index = idx;
-		return true;
+	if (index >= (int)list.size()) {
+		return;
 	}
 
-	if (otherwise_end)
-		index = idx;
-
-	return true;
+	for (++index; index < (int)list.size(); ++index) {
+		const auto& com = list[index];
+		if (com.indent > indent) {
+			continue;
+		}
+		if (std::find(codes.begin(), codes.end(), com.code) != codes.end()) {
+			break;
+		}
+	}
 }
 
 int Game_Interpreter::DecodeInt(std::vector<int32_t>::const_iterator& it) {
@@ -383,6 +561,11 @@ RPG::MoveCommand Game_Interpreter::DecodeMove(std::vector<int32_t>::const_iterat
 
 // Execute Command.
 bool Game_Interpreter::ExecuteCommand() {
+	auto* frame = GetFrame();
+	assert(frame);
+	const auto& list = frame->commands;
+	auto& index = frame->current_command;
+
 	RPG::EventCommand const& com = list[index];
 
 	switch (com.code) {
@@ -395,9 +578,9 @@ bool Game_Interpreter::ExecuteCommand() {
 		case Cmd::ShowChoice:
 			return CommandShowChoices(com);
 		case Cmd::ShowChoiceOption:
-			return SkipTo(Cmd::ShowChoiceEnd);
+			return CommandShowChoiceOption(com);
 		case Cmd::ShowChoiceEnd:
-			return true;
+			return CommandShowChoiceEnd(com);
 		case Cmd::InputNumber:
 			return CommandInputNumber(com);
 		case Cmd::ControlSwitches:
@@ -548,9 +731,9 @@ bool Game_Interpreter::ExecuteCommand() {
 		case Cmd::ChangeBattleCommands:
 			return CommandChangeBattleCommands(com);
 		case Cmd::ElseBranch:
-			return SkipTo(Cmd::EndBranch);
+			return CommandElseBranch(com);
 		case Cmd::EndBranch:
-			return true;
+			return CommandEndBranch(com);
 		case Cmd::ExitGame:
 			return CommandExitGame(com);
 		case Cmd::ToggleFullscreen:
@@ -560,30 +743,47 @@ bool Game_Interpreter::ExecuteCommand() {
 	}
 }
 
-bool Game_Interpreter::CommandEnd() { // code 10
-	if (main_flag && depth == 0) {
+bool Game_Interpreter::OnFinishStackFrame() {
+	auto* frame = GetFrame();
+	assert(frame);
+	auto& list = frame->commands;
+
+	const bool is_base_frame = _state.stack.size() == 1;
+
+	if (main_flag && is_base_frame) {
 		Game_Message::SetFaceName("");
 	}
 
-	// FIXME: Hangs in some cases when Autostart events start
-	//if (main_flag) {
-	//	Game_Message::FullClear();
-	//}
+	int event_id = frame->event_id;
 
-	list.clear();
-
-	if (main_flag && depth == 0 && event_id > 0) {
+	if (is_base_frame && event_id > 0) {
 		Game_Event* evnt = Game_Map::GetEvent(event_id);
-		if (evnt)
+		if (!evnt) {
+			Output::Error("Call stack finished with invalid event id %d. This can be caused by a vehicle teleport?", event_id);
+		} else if (main_flag) {
 			evnt->OnFinishForegroundEvent();
+		}
 	}
 
-	Scene::instance->onCommandEnd();
+	if (!main_flag && is_base_frame) {
+		// Parallel events will never clear the base stack frame. Instead we just
+		// reset the index back to 0 and wait for a frame.
+		// This not only optimizes away copying event code, it's also RPG_RT compatible.
+		frame->current_command = 0;
+	} else {
+		// If a called frame, or base frame of foreground interpreter, pop the stack.
+		_state.stack.pop_back();
+	}
 
-	return true;
+	return !is_base_frame;
 }
 
 std::vector<std::string> Game_Interpreter::GetChoices() {
+	auto* frame = GetFrame();
+	assert(frame);
+	const auto& list = frame->commands;
+	auto& index = frame->current_command;
+
 	// Let's find the choices
 	int current_indent = list[index + 1].indent;
 	std::vector<std::string> s_choices;
@@ -609,61 +809,78 @@ std::vector<std::string> Game_Interpreter::GetChoices() {
 	return s_choices;
 }
 
+bool Game_Interpreter::CommandOptionGeneric(RPG::EventCommand const& com, int option_sub_idx, std::initializer_list<int> next) {
+	const auto sub_idx = GetSubcommandIndex(com.indent);
+	if (sub_idx == option_sub_idx) {
+		// Executes this option, so clear the subidx to skip all other options.
+		SetSubcommandIndex(com.indent, subcommand_sentinel);
+	} else {
+		SkipToNextConditional(next, com.indent);
+	}
+	return true;
+}
+
 bool Game_Interpreter::CommandShowMessage(RPG::EventCommand const& com) { // code 10110
-	// If there's a text already, return immediately
-	if (Game_Message::message_waiting)
-		return false;
+	auto* frame = GetFrame();
+	assert(frame);
+	const auto& list = frame->commands;
+	auto& index = frame->current_command;
 
-	// Parallel interpreters must wait until the message window is closed
-	if (!main_flag && Game_Message::visible)
+	if (!Game_Message::CanShowMessage(main_flag)) {
 		return false;
+	}
 
-	wait_messages = true;
 	unsigned int line_count = 0;
 
 	Game_Message::message_waiting = true;
-	Game_Message::owner_id = event_id;
+	_state.show_message = true;
 
 	// Set first line
 	Game_Message::texts.push_back(com.string);
 	line_count++;
 
-	for (; index + 1 < list.size(); index++) {
-		// If next event command is the following parts of the message
-		if (list[index+1].code == Cmd::ShowMessage_2) {
-			// Add second (another) line
-			line_count++;
-			Game_Message::texts.push_back(list[index+1].string);
-		} else {
-			// If next event command is show choices
-			if (list[index+1].code == Cmd::ShowChoice) {
-				std::vector<std::string> s_choices = GetChoices();
-				// If choices fit on screen
-				if (s_choices.size() <= (4 - line_count)) {
-					index++;
-					Game_Message::choice_start = line_count;
-					Game_Message::choice_cancel_type = list[index].parameters[0];
-					SetupChoices(s_choices);
-				}
-			} else if (list[index+1].code == Cmd::InputNumber) {
-				// If next event command is input number
-				// If input number fits on screen
-				if (line_count < 4) {
-					index++;
-					Game_Message::num_input_start = line_count;
-					Game_Message::num_input_digits_max = list[index].parameters[0];
-					Game_Message::num_input_variable_id = list[index].parameters[1];
-				}
-			}
+	++index;
 
-			break;
+	// Check for continued lines via ShowMessage_2
+	while (index < list.size() && list[index].code == Cmd::ShowMessage_2) {
+		// Add second (another) line
+		line_count++;
+		Game_Message::texts.push_back(list[index].string);
+		++index;
+	}
+
+	// Handle Choices or number
+	if (index < list.size()) {
+		// If next event command is show choices
+		if (list[index].code == Cmd::ShowChoice) {
+			std::vector<std::string> s_choices = GetChoices();
+			// If choices fit on screen
+			if (s_choices.size() <= (4 - line_count)) {
+				Game_Message::choice_start = line_count;
+				Game_Message::choice_cancel_type = list[index].parameters[0];
+				SetupChoices(s_choices, com.indent);
+				++index;
+			}
+		} else if (list[index].code == Cmd::InputNumber) {
+			// If next event command is input number
+			// If input number fits on screen
+			if (line_count < 4) {
+				Game_Message::num_input_start = line_count;
+				Game_Message::num_input_digits_max = list[index].parameters[0];
+				Game_Message::num_input_variable_id = list[index].parameters[1];
+				++index;
+			}
 		}
-	} // End for
+	}
 
 	return true;
 }
 
 bool Game_Interpreter::CommandMessageOptions(RPG::EventCommand const& com) { //code 10120
+	if (!Game_Message::CanShowMessage(main_flag)) {
+		return false;
+	}
+
 	Game_Message::SetTransparent(com.parameters[0] != 0);
 	Game_Message::SetPosition(com.parameters[1]);
 	Game_Message::SetPositionFixed(com.parameters[2] == 0);
@@ -672,8 +889,9 @@ bool Game_Interpreter::CommandMessageOptions(RPG::EventCommand const& com) { //c
 }
 
 bool Game_Interpreter::CommandChangeFaceGraphic(RPG::EventCommand const& com) { // Code 10130
-	if (Game_Message::message_waiting && Game_Message::owner_id != event_id)
+	if (!Game_Message::CanShowMessage(main_flag)) {
 		return false;
+	}
 
 	Game_Message::SetFaceName(com.string);
 	Game_Message::SetFaceIndex(com.parameters[0]);
@@ -682,8 +900,9 @@ bool Game_Interpreter::CommandChangeFaceGraphic(RPG::EventCommand const& com) { 
 	return true;
 }
 
-void Game_Interpreter::SetupChoices(const std::vector<std::string>& choices) {
+void Game_Interpreter::SetupChoices(const std::vector<std::string>& choices, int indent) {
 	Game_Message::choice_start = Game_Message::texts.size();
+	Game_Message::choice_reset_color = false;
 	Game_Message::choice_max = choices.size();
 	Game_Message::choice_disabled.reset();
 
@@ -694,54 +913,62 @@ void Game_Interpreter::SetupChoices(const std::vector<std::string>& choices) {
 	}
 
 	SetContinuation(&Game_Interpreter::ContinuationChoices);
+
+	// save game compatibility with RPG_RT
+	ReserveSubcommandIndex(indent);
 }
 
 bool Game_Interpreter::ContinuationChoices(RPG::EventCommand const& com) {
-	continuation = NULL;
-	int indent = com.indent;
-	for (;;) {
-		if (!SkipTo(Cmd::ShowChoiceOption, Cmd::ShowChoiceEnd, indent, indent))
-			return false;
-		auto& cmd = list[index];
-		if (cmd.code == Cmd::ShowChoiceEnd) {
-			return false;
-		}
-		int which = cmd.parameters[0];
-		index++;
-		if (which > Game_Message::choice_result)
-			return false;
-		if (which < Game_Message::choice_result)
-			continue;
-		break;
-	}
+	auto* frame = GetFrame();
+	assert(frame);
+	auto& index = frame->current_command;
+
+	SetSubcommandIndex(com.indent, Game_Message::choice_result);
+
+	continuation = nullptr;
 
 	return true;
 }
 
 bool Game_Interpreter::CommandShowChoices(RPG::EventCommand const& com) { // code 10140
-	if (!Game_Message::texts.empty()) {
+	auto* frame = GetFrame();
+	assert(frame);
+	auto& index = frame->current_command;
+
+	if (!Game_Message::CanShowMessage(main_flag)) {
 		return false;
 	}
 
 	Game_Message::message_waiting = true;
-	Game_Message::owner_id = event_id;
-	wait_messages = true;
+	_state.show_message = true;
+
 	// Choices setup
 	std::vector<std::string> choices = GetChoices();
 	Game_Message::choice_cancel_type = com.parameters[0];
-	SetupChoices(choices);
+	SetupChoices(choices, com.indent);
 
+	++index;
+	return false;
+}
+
+
+bool Game_Interpreter::CommandShowChoiceOption(RPG::EventCommand const& com) { //code 20140
+	const auto opt_sub_idx = com.parameters[0];
+	return CommandOptionGeneric(com, opt_sub_idx, {Cmd::ShowChoiceOption, Cmd::ShowChoiceEnd});
+}
+
+bool Game_Interpreter::CommandShowChoiceEnd(RPG::EventCommand const& com) { //code 20141
 	return true;
 }
 
+
 bool Game_Interpreter::CommandInputNumber(RPG::EventCommand const& com) { // code 10150
-	if (Game_Message::message_waiting) {
+	if (!Game_Message::CanShowMessage(main_flag)) {
 		return false;
 	}
 
 	Game_Message::message_waiting = true;
-	Game_Message::owner_id = event_id;
-	wait_messages = true;
+	_state.show_message = true;
 
 	Game_Message::num_input_start = 0;
 	Game_Message::num_input_variable_id = com.parameters[1];
@@ -1105,19 +1332,20 @@ std::vector<Game_Actor*> Game_Interpreter::GetActors(int mode, int id) {
 	return actors;
 }
 
-Game_Character* Game_Interpreter::GetCharacter(int character_id) const {
-	if (!event_info.page && character_id == Game_Character::CharThisEvent) {
+Game_Character* Game_Interpreter::GetCharacter(int event_id) const {
+	if (event_id == Game_Character::CharThisEvent) {
+		event_id = GetThisEventId();
 		// Is a common event
 		if (event_id == 0) {
 			// With no map parent
-			Output::Warning("Can't use ThisEvent in common event %d: Not called from a map event", event_info.x);
+			Output::Warning("Can't use ThisEvent in common event: Not called from a map event");
 			return nullptr;
 		}
 	}
 
-	Game_Character* ch = Game_Character::GetCharacter(character_id, event_id);
+	Game_Character* ch = Game_Character::GetCharacter(event_id, event_id);
 	if (!ch) {
-		Output::Warning("Unknown event with id %d", character_id);
+		Output::Warning("Unknown event with id %d", event_id);
 	}
 	return ch;
 }
@@ -1464,11 +1692,7 @@ bool Game_Interpreter::CommandChangeCondition(RPG::EventCommand const& com) { //
 
 bool Game_Interpreter::CommandFullHeal(RPG::EventCommand const& com) { // Code 10490
 	for (const auto& actor : GetActors(com.parameters[0], com.parameters[1])) {
-		actor->RemoveAllStates();
-		actor->ChangeHp(actor->GetMaxHp());
-		actor->SetSp(actor->GetMaxSp());
-		// Emulates RPG_RT behavior of resetting even battle equipment states on full heal.
-		actor->ResetEquipmentStates(true);
+		actor->FullHeal();
 	}
 
 	CheckGameOver();
@@ -1508,6 +1732,10 @@ bool Game_Interpreter::CommandSimulatedAttack(RPG::EventCommand const& com) { //
 }
 
 bool Game_Interpreter::CommandWait(RPG::EventCommand const& com) { // code 11410
+	auto* frame = GetFrame();
+	assert(frame);
+	auto& index = frame->current_command;
+
 	// Wait a given time
 	if (com.parameters.size() <= 1 ||
 		(com.parameters.size() > 1 && com.parameters[1] == 0)) {
@@ -1515,14 +1743,15 @@ bool Game_Interpreter::CommandWait(RPG::EventCommand const& com) { // code 11410
 		return true;
 	}
 
-	// Wait until decision key pressed, but skip the first frame so that
-	// it ignores keys that were pressed before this command started.
-	if (!Game_Message::visible && button_timer > 0 && Input::IsTriggered(Input::DECISION)) {
-		button_timer = 0;
-		return true;
+	if (Game_Message::IsMessageActive()) {
+		return false;
 	}
 
-	button_timer++;
+	// Wait until decision key pressed, but skip the first frame so that
+	// it ignores keys that were pressed before this command started.
+	// FIXME: Is this behavior correct?
+	_state.wait_key_enter = true;
+	++index;
 	return false;
 }
 
@@ -1567,6 +1796,12 @@ bool Game_Interpreter::CommandPlaySound(RPG::EventCommand const& com) { // code 
 
 //netherware fix: practicamente toda la funcion
 bool Game_Interpreter::CommandEndEventProcessing(RPG::EventCommand const& /* com */) { // code 12310
+	auto* frame = GetFrame();
+	assert(frame);
+	const auto& list = frame->commands;
+	auto& index = frame->current_command;
+
+	index = list.size();
 #ifdef STEAMSHIM
 	if ( Game_Variables.IsValid(1901) && Game_Variables.IsValid(1903) ) {
 
@@ -1734,7 +1969,11 @@ bool Game_Interpreter::CommandEndEventProcessing(RPG::EventCommand const& /* com
 }
 
 bool Game_Interpreter::CommandGameOver(RPG::EventCommand const& /* com */) { // code 12420
-	if (Game_Message::visible) {
+	auto* frame = GetFrame();
+	assert(frame);
+	auto& index = frame->current_command;
+
+	if (Game_Message::IsMessageActive()) {
 		return false;
 	}
 
@@ -1807,7 +2046,8 @@ bool Game_Interpreter::CommandChangeVehicleGraphic(RPG::EventCommand const& com)
 	const std::string& name = com.string;
 	int vehicle_index = com.parameters[1];
 
-	vehicle->SetGraphic(name, vehicle_index);
+	vehicle->SetSpriteGraphic(name, vehicle_index);
+	vehicle->SetOrigSpriteGraphic(name, vehicle_index);
 
 	return true;
 }
@@ -1835,26 +2075,10 @@ bool Game_Interpreter::CommandChangeSystemSFX(RPG::EventCommand const& com) { //
 	return true;
 }
 
-void Game_Interpreter::OnChangeSystemGraphicReady(FileRequestResult* result) {
-	Game_System::SetSystemName(result->file);
-
-	Scene_Map* scene = (Scene_Map*)Scene::Find(Scene::Map).get();
-
-	if (!scene)
-		return;
-
-	scene->spriteset->SystemGraphicUpdated();
-}
-
 bool Game_Interpreter::CommandChangeSystemGraphics(RPG::EventCommand const& com) { // code 10680
-	FileRequestAsync* request = AsyncHandler::RequestFile("System", com.string);
-	request_id = request->Bind(&Game_Interpreter::OnChangeSystemGraphicReady, this);
-	request->SetImportantFile(true);
-	request->SetGraphicFile(true);
-	request->Start();
-
-	Game_System::SetMessageStretch((RPG::System::Stretch)com.parameters[0]);
-	Game_System::SetFontId(com.parameters[1]);
+	Game_System::SetSystemGraphic(com.string,
+			(RPG::System::Stretch)com.parameters[0],
+			(RPG::System::Font)com.parameters[1]);
 
 	return true;
 }
@@ -1877,6 +2101,10 @@ bool Game_Interpreter::CommandMemorizeLocation(RPG::EventCommand const& com) { /
 }
 
 bool Game_Interpreter::CommandSetVehicleLocation(RPG::EventCommand const& com) { // code 10850
+	auto* frame = GetFrame();
+	assert(frame);
+	auto& index = frame->current_command;
+
 	Game_Vehicle::Type vehicle_id = (Game_Vehicle::Type) (com.parameters[0] + 1);
 	Game_Vehicle* vehicle = Game_Map::GetVehicle(vehicle_id);
 
@@ -1917,7 +2145,12 @@ bool Game_Interpreter::CommandSetVehicleLocation(RPG::EventCommand const& com) {
 			vehicle->SetPosition(map_id, x, y);
 		}
 
-		Main_Data::game_player->ReserveTeleport(map_id, x, y, -1);
+		auto event_id = GetOriginalEventId();
+		if (!main_flag && event_id != 0) {
+			Output::Error("VehicleTeleport not allowed from parallel map event! Id=%d", event_id);
+		}
+
+		Main_Data::game_player->ReserveTeleport(map_id, x, y, -1, TeleportTarget::eVehicleHackTeleport);
 
 		// Parallel events should keep on running in 2k and 2k3, unlike in later versions
 		if (!main_flag)
@@ -1986,169 +2219,173 @@ bool Game_Interpreter::CommandStoreEventID(RPG::EventCommand const& com) { // co
 	int x = ValueOrVariable(com.parameters[0], com.parameters[1]);
 	int y = ValueOrVariable(com.parameters[0], com.parameters[2]);
 	int var_id = com.parameters[3];
-	std::vector<Game_Event*> events;
-	Game_Map::GetEventsXY(events, x, y);
-	Game_Variables.Set(var_id, events.size() > 0 ? events.back()->GetId() : 0);
+	auto* ev = Game_Map::GetEventAt(x, y, false);
+	Game_Variables.Set(var_id, ev ? ev->GetId() : 0);
 	Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
 	return true;
 }
 
 bool Game_Interpreter::CommandEraseScreen(RPG::EventCommand const& com) { // code 11010
-	if (Game_Temp::transition_processing || Game_Message::visible)
+	if (Game_Message::IsMessageActive()) {
 		return false;
+	}
 
-	Game_Temp::transition_processing = true;
-	Game_Temp::transition_erase = true;
-	transition_owner = this;
+	int tt = Transition::TransitionNone;
 
 	switch (com.parameters[0]) {
 	case -1:
-		Game_Temp::transition_type = (Transition::TransitionType)Game_System::GetTransition(
+		tt = (Transition::TransitionType)Game_System::GetTransition(
 			Game_System::Transition_TeleportErase);
-		return true;
+		break;
 	case 0:
-		Game_Temp::transition_type = Transition::TransitionFadeOut;
-		return true;
+		tt = Transition::TransitionFadeOut;
+		break;
 	case 1:
-		Game_Temp::transition_type = Transition::TransitionRandomBlocks;
-		return true;
+		tt = Transition::TransitionRandomBlocks;
+		break;
 	case 2:
-		Game_Temp::transition_type = Transition::TransitionRandomBlocksUp;
-		return true;
+		tt = Transition::TransitionRandomBlocksUp;
+		break;
 	case 3:
-		Game_Temp::transition_type = Transition::TransitionRandomBlocksDown;
-		return true;
+		tt = Transition::TransitionRandomBlocksDown;
+		break;
 	case 4:
-		Game_Temp::transition_type = Transition::TransitionBlindClose;
-		return true;
+		tt = Transition::TransitionBlindClose;
+		break;
 	case 5:
-		Game_Temp::transition_type = Transition::TransitionVerticalStripesOut;
-		return true;
+		tt = Transition::TransitionVerticalStripesOut;
+		break;
 	case 6:
-		Game_Temp::transition_type = Transition::TransitionHorizontalStripesOut;
-		return true;
+		tt = Transition::TransitionHorizontalStripesOut;
+		break;
 	case 7:
-		Game_Temp::transition_type = Transition::TransitionBorderToCenterOut;
-		return true;
+		tt = Transition::TransitionBorderToCenterOut;
+		break;
 	case 8:
-		Game_Temp::transition_type = Transition::TransitionCenterToBorderOut;
-		return true;
+		tt = Transition::TransitionCenterToBorderOut;
+		break;
 	case 9:
-		Game_Temp::transition_type = Transition::TransitionScrollUpOut;
-		return true;
+		tt = Transition::TransitionScrollUpOut;
+		break;
 	case 10:
-		Game_Temp::transition_type = Transition::TransitionScrollDownOut;
-		return true;
+		tt = Transition::TransitionScrollDownOut;
+		break;
 	case 11:
-		Game_Temp::transition_type = Transition::TransitionScrollLeftOut;
-		return true;
+		tt = Transition::TransitionScrollLeftOut;
+		break;
 	case 12:
-		Game_Temp::transition_type = Transition::TransitionScrollRightOut;
-		return true;
+		tt = Transition::TransitionScrollRightOut;
+		break;
 	case 13:
-		Game_Temp::transition_type = Transition::TransitionVerticalDivision;
-		return true;
+		tt = Transition::TransitionVerticalDivision;
+		break;
 	case 14:
-		Game_Temp::transition_type = Transition::TransitionHorizontalDivision;
-		return true;
+		tt = Transition::TransitionHorizontalDivision;
+		break;
 	case 15:
-		Game_Temp::transition_type = Transition::TransitionCrossDivision;
-		return true;
+		tt = Transition::TransitionCrossDivision;
+		break;
 	case 16:
-		Game_Temp::transition_type = Transition::TransitionZoomIn;
-		return true;
+		tt = Transition::TransitionZoomIn;
+		break;
 	case 17:
-		Game_Temp::transition_type = Transition::TransitionMosaicOut;
-		return true;
+		tt = Transition::TransitionMosaicOut;
+		break;
 	case 18:
-		Game_Temp::transition_type = Transition::TransitionWaveOut;
-		return true;
+		tt = Transition::TransitionWaveOut;
+		break;
 	case 19:
-		Game_Temp::transition_type = Transition::TransitionErase;
-		return true;
+		tt = Transition::TransitionErase;
+		break;
 	default:
-		Game_Temp::transition_type = Transition::TransitionNone;
-		return true;
+		tt = Transition::TransitionNone;
+		break;
 	}
+
+	_async_op = AsyncOp::MakeEraseScreen(tt);
+
+	return true;
 }
 
 bool Game_Interpreter::CommandShowScreen(RPG::EventCommand const& com) { // code 11020
-	if (Game_Temp::transition_processing || Game_Message::visible)
+	if (Game_Message::IsMessageActive()) {
 		return false;
+	}
 
-	Game_Temp::transition_processing = true;
-	Game_Temp::transition_erase = false;
-	transition_owner = this;
+	int tt = Transition::TransitionNone;
 
 	switch (com.parameters[0]) {
 	case -1:
-		Game_Temp::transition_type = (Transition::TransitionType)Game_System::GetTransition(
+		tt = (Transition::TransitionType)Game_System::GetTransition(
 			Game_System::Transition_TeleportShow);
-		return true;
+		break;
 	case 0:
-		Game_Temp::transition_type = Transition::TransitionFadeIn;
-		return true;
+		tt = Transition::TransitionFadeIn;
+		break;
 	case 1:
-		Game_Temp::transition_type = Transition::TransitionRandomBlocks;
-		return true;
+		tt = Transition::TransitionRandomBlocks;
+		break;
 	case 2:
-		Game_Temp::transition_type = Transition::TransitionRandomBlocksUp;
-		return true;
+		tt = Transition::TransitionRandomBlocksUp;
+		break;
 	case 3:
-		Game_Temp::transition_type = Transition::TransitionRandomBlocksDown;
-		return true;
+		tt = Transition::TransitionRandomBlocksDown;
+		break;
 	case 4:
-		Game_Temp::transition_type = Transition::TransitionBlindOpen;
-		return true;
+		tt = Transition::TransitionBlindOpen;
+		break;
 	case 5:
-		Game_Temp::transition_type = Transition::TransitionVerticalStripesIn;
-		return true;
+		tt = Transition::TransitionVerticalStripesIn;
+		break;
 	case 6:
-		Game_Temp::transition_type = Transition::TransitionHorizontalStripesIn;
-		return true;
+		tt = Transition::TransitionHorizontalStripesIn;
+		break;
 	case 7:
-		Game_Temp::transition_type = Transition::TransitionBorderToCenterIn;
-		return true;
+		tt = Transition::TransitionBorderToCenterIn;
+		break;
 	case 8:
-		Game_Temp::transition_type = Transition::TransitionCenterToBorderIn;
-		return true;
+		tt = Transition::TransitionCenterToBorderIn;
+		break;
 	case 9:
-		Game_Temp::transition_type = Transition::TransitionScrollUpIn;
-		return true;
+		tt = Transition::TransitionScrollUpIn;
+		break;
 	case 10:
-		Game_Temp::transition_type = Transition::TransitionScrollDownIn;
-		return true;
+		tt = Transition::TransitionScrollDownIn;
+		break;
 	case 11:
-		Game_Temp::transition_type = Transition::TransitionScrollLeftIn;
-		return true;
+		tt = Transition::TransitionScrollLeftIn;
+		break;
 	case 12:
-		Game_Temp::transition_type = Transition::TransitionScrollRightIn;
-		return true;
+		tt = Transition::TransitionScrollRightIn;
+		break;
 	case 13:
-		Game_Temp::transition_type = Transition::TransitionVerticalCombine;
-		return true;
+		tt = Transition::TransitionVerticalCombine;
+		break;
 	case 14:
-		Game_Temp::transition_type = Transition::TransitionHorizontalCombine;
-		return true;
+		tt = Transition::TransitionHorizontalCombine;
+		break;
 	case 15:
-		Game_Temp::transition_type = Transition::TransitionCrossCombine;
-		return true;
+		tt = Transition::TransitionCrossCombine;
+		break;
 	case 16:
-		Game_Temp::transition_type = Transition::TransitionZoomOut;
-		return true;
+		tt = Transition::TransitionZoomOut;
+		break;
 	case 17:
-		Game_Temp::transition_type = Transition::TransitionMosaicIn;
-		return true;
+		tt = Transition::TransitionMosaicIn;
+		break;
 	case 18:
-		Game_Temp::transition_type = Transition::TransitionWaveIn;
-		return true;
+		tt = Transition::TransitionWaveIn;
+		break;
 	case 19:
-		Game_Temp::transition_type = Transition::TransitionErase;
-		return true;
+		tt = Transition::TransitionErase;
+		break;
 	default:
-		Game_Temp::transition_type = Transition::TransitionNone;
-		return true;
+		tt = Transition::TransitionNone;
+		break;
 	}
+
+	_async_op = AsyncOp::MakeShowScreen(tt);
+	return true;
 }
 
 bool Game_Interpreter::CommandTintScreen(RPG::EventCommand const& com) { // code 11030
@@ -2548,125 +2785,119 @@ bool Game_Interpreter::CommandPlayMemorizedBGM(RPG::EventCommand const& /* com *
 	return true;
 }
 
+
+int Game_Interpreter::KeyInputState::CheckInput() const {
+	auto check = wait ? Input::IsTriggered : Input::IsPressed;
+
+	// RPG processes keys from highest variable value to lowest.
+	if (keys[Keys::eOperators]) {
+		for (int i = 5; i > 0;) {
+			--i;
+			if (check((Input::InputButton)(Input::PLUS + i))) {
+				return 20 + i;
+			}
+		}
+	}
+	if (keys[Keys::eNumbers]) {
+		for (int i = 10; i > 0;) {
+			--i;
+			if (check((Input::InputButton)(Input::N0 + i))) {
+				return 10 + i;
+			}
+		}
+	}
+
+	if (keys[Keys::eShift] && check(Input::SHIFT)) {
+		return 7;
+	}
+	if (keys[Keys::eCancel] && check(Input::CANCEL)) {
+		return 6;
+	}
+	if (keys[Keys::eDecision] && check(Input::DECISION)) {
+		return 5;
+	}
+	if (keys[Keys::eUp] && check(Input::UP)) {
+		return 4;
+	}
+	if (keys[Keys::eRight] && check(Input::RIGHT)) {
+		return 3;
+	}
+	if (keys[Keys::eLeft] && check(Input::LEFT)) {
+		return 2;
+	}
+	if (keys[Keys::eDown] && check(Input::DOWN)) {
+		return 1;
+	}
+
+	return 0;
+}
+
 bool Game_Interpreter::CommandKeyInputProc(RPG::EventCommand const& com) { // code 11610
+	auto* frame = GetFrame();
+	assert(frame);
+	auto& index = frame->current_command;
+
 	int var_id = com.parameters[0];
 	bool wait = com.parameters[1] != 0;
 
 	if (wait) {
-		// While waiting the variable is reset to 0 every frame
+		// While waiting the variable is reset to 0 each frame.
 		Game_Variables.Set(var_id, 0);
 		Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
 	}
 
-	if (wait && Game_Message::visible)
-		return false;
-
-	// Wait the first frame so that it ignores keys that were pressed before this command started.
-	if (wait && button_timer == 0) {
-		button_timer++;
+	if (wait && Game_Message::IsMessageActive()) {
 		return false;
 	}
 
-	bool time = false;
-	int time_id = 0;
+	_keyinput = {};
+	_keyinput.wait = wait;
+	_keyinput.variable = var_id;
 
-	bool check_decision = com.parameters[3] != 0;
-	bool check_cancel = com.parameters[4] != 0;
-	bool check_numbers = false;
-	bool check_arith = false;
-	bool check_shift = false;
-	bool check_down = false;
-	bool check_left = false;
-	bool check_right = false;
-	bool check_up = false;
-	int result = 0;
-	size_t param_size = com.parameters.size();
+	_keyinput.keys[Keys::eDecision] = com.parameters[3] != 0;
+	_keyinput.keys[Keys::eCancel] = com.parameters[4] != 0;
 
-	// Use a function pointer to check triggered keys if it waits for input and pressed keys otherwise
-	bool(*check)(Input::InputButton) = wait ? Input::IsTriggered : Input::IsPressed;
+	const size_t param_size = com.parameters.size();
 
 	if (param_size < 6) {
 		// For Rpg2k <1.50
-		bool check_dir = com.parameters[2] != 0;
-		check_down = check_dir;
-		check_left = check_dir;
-		check_right = check_dir;
-		check_up = check_dir;
+		if (com.parameters[2] != 0) {
+			_keyinput.keys[Keys::eDown] = true;
+			_keyinput.keys[Keys::eLeft] = true;
+			_keyinput.keys[Keys::eRight] = true;
+			_keyinput.keys[Keys::eUp] = true;
+		}
 	} else if (param_size < 11) {
 		// For Rpg2k >=1.50
-		check_shift = com.parameters[5] != 0;
-		check_down = param_size > 6 ? com.parameters[6] != 0 : false;
-		check_left = param_size > 7 ? com.parameters[7] != 0 : false;
-		check_right = param_size > 8 ? com.parameters[8] != 0 : false;
-		check_up = param_size > 9 ? com.parameters[9] != 0 : false;
+		_keyinput.keys[Keys::eShift] = com.parameters[5] != 0;
+		_keyinput.keys[Keys::eDown] = param_size > 6 ? com.parameters[6] != 0 : false;
+		_keyinput.keys[Keys::eLeft] = param_size > 7 ? com.parameters[7] != 0 : false;
+		_keyinput.keys[Keys::eRight] = param_size > 8 ? com.parameters[8] != 0 : false;
+		_keyinput.keys[Keys::eUp] = param_size > 9 ? com.parameters[9] != 0 : false;
 	} else {
 		// For Rpg2k3
-		check_numbers = com.parameters[5] != 0;
-		check_arith = com.parameters[6] != 0;
-		time_id = com.parameters[7];
-		time = com.parameters[8] != 0;
-		check_shift = com.parameters[9] != 0;
-		check_down = com.parameters[10] != 0;
-		check_left = param_size > 11 ? com.parameters[11] != 0 : false;
-		check_right = param_size > 12 ? com.parameters[12] != 0 : false;
-		check_up = param_size > 13 ? com.parameters[13] != 0 : false;
+		_keyinput.keys[Keys::eNumbers] = com.parameters[5] != 0;
+		_keyinput.keys[Keys::eOperators] = com.parameters[6] != 0;
+		_keyinput.time_variable = com.parameters[7];
+		_keyinput.timed = com.parameters[8] != 0;
+		_keyinput.keys[Keys::eShift] = com.parameters[9] != 0;
+		_keyinput.keys[Keys::eDown] = com.parameters[10] != 0;
+		_keyinput.keys[Keys::eLeft] = param_size > 11 ? com.parameters[11] != 0 : false;
+		_keyinput.keys[Keys::eRight] = param_size > 12 ? com.parameters[12] != 0 : false;
+		_keyinput.keys[Keys::eUp] = param_size > 13 ? com.parameters[13] != 0 : false;
 	}
 
-	if (check_down && check(Input::DOWN)) {
-		result = 1;
-	}
-	if (check_left && check(Input::LEFT)) {
-		result = 2;
-	}
-	if (check_right && check(Input::RIGHT)) {
-		result = 3;
-	}
-	if (check_up && check(Input::UP)) {
-		result = 4;
-	}
-	if (check_decision && check(Input::DECISION)) {
-		result = 5;
-	}
-	if (check_cancel && check(Input::CANCEL)) {
-		result = 6;
-	}
-	if (check_shift && check(Input::SHIFT)) {
-		result = 7;
-	}
-	if (check_numbers) {
-		for (int i = 0; i < 10; ++i) {
-			if (check((Input::InputButton)(Input::N0 + i))) {
-				result = 10 + i;
-			}
-		}
-	}
-	if (check_arith) {
-		for (int i = 0; i < 5; ++i) {
-			if (check((Input::InputButton)(Input::PLUS + i))) {
-				result = 20 + i;
-			}
-		}
-	}
-
-	if (var_id > 0) {
-		Game_Variables.Set(var_id, result);
-		Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
-	}
-
-	if (!wait)
-		return true;
-
-	button_timer++;
-
-	if (result == 0)
+	// Wait until key pressed, but skip the first frame so that
+	// it ignores keys that were pressed before this command started.
+	// FIXME: Is this behavior correct?
+	if (_keyinput.wait) {
+		++index;
 		return false;
-
-	if (time) {
-		// 10 per second
-		Game_Variables.Set(time_id, (int)((float)button_timer / Graphics::GetDefaultFps() * 10));
 	}
 
-	button_timer = 0;
+	int key = _keyinput.CheckInput();
+	Game_Variables.Set(_keyinput.variable, key);
+	Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
 
 	return true;
 }
@@ -2776,6 +3007,9 @@ bool Game_Interpreter::CommandChangeMainMenuAccess(RPG::EventCommand const& com)
 }
 
 bool Game_Interpreter::CommandConditionalBranch(RPG::EventCommand const& com) { // Code 12010
+	auto* frame = GetFrame();
+	assert(frame);
+
 	bool result = false;
 	int value1, value2;
 	int actor_id;
@@ -2863,9 +3097,10 @@ bool Game_Interpreter::CommandConditionalBranch(RPG::EventCommand const& com) { 
 
 		if (!actor) {
 			Output::Warning("ConditionalBranch: Invalid actor ID %d", actor_id);
-			// Use Else branch
-			++loop_count;
-			return SkipTo(Cmd::ElseBranch, Cmd::EndBranch);
+			// Use Else Branch
+			SetSubcommandIndex(com.indent, 1);
+			SkipToNextConditional({Cmd::ElseBranch, Cmd::EndBranch}, com.indent);
+			return true;
 		}
 
 		switch (com.parameters[2]) {
@@ -2929,7 +3164,7 @@ bool Game_Interpreter::CommandConditionalBranch(RPG::EventCommand const& com) { 
 	}
 	case 8:
 		// Key decision initiated this event
-		result = triggered_by_decision_key;
+		result = frame->triggered_by_decision_key;
 		break;
 	case 9:
 		// BGM looped at least once
@@ -2972,14 +3207,32 @@ bool Game_Interpreter::CommandConditionalBranch(RPG::EventCommand const& com) { 
 		Output::Warning("ConditionalBranch: Branch %d unsupported", com.parameters[0]);
 	}
 
-	if (result)
-		return true;
 
-	++loop_count;
-	return SkipTo(Cmd::ElseBranch, Cmd::EndBranch);
+	int sub_idx = subcommand_sentinel;
+	if (!result) {
+		sub_idx = eOptionBranchElse;
+		SkipToNextConditional({Cmd::ElseBranch, Cmd::EndBranch}, com.indent);
+	}
+
+	SetSubcommandIndex(com.indent, sub_idx);
+	return true;
+}
+
+
+bool Game_Interpreter::CommandElseBranch(RPG::EventCommand const& com) { //code 22010
+	return CommandOptionGeneric(com, eOptionBranchElse, {Cmd::EndBranch});
+}
+
+bool Game_Interpreter::CommandEndBranch(RPG::EventCommand const& com) { //code 22011
+	return true;
 }
 
 bool Game_Interpreter::CommandJumpToLabel(RPG::EventCommand const& com) { // code 12120
+	auto* frame = GetFrame();
+	assert(frame);
+	const auto& list = frame->commands;
+	auto& index = frame->current_command;
+
 	int label_id = com.parameters[0];
 
 	for (int idx = 0; (size_t)idx < list.size(); idx++) {
@@ -2995,10 +3248,32 @@ bool Game_Interpreter::CommandJumpToLabel(RPG::EventCommand const& com) { // cod
 }
 
 bool Game_Interpreter::CommandBreakLoop(RPG::EventCommand const& com) { // code 12220
-	return SkipTo(Cmd::EndLoop, Cmd::EndLoop, 0, com.indent - 1, true);
+	auto* frame = GetFrame();
+	assert(frame);
+	const auto& list = frame->commands;
+	auto& index = frame->current_command;
+
+	// BreakLoop will jump to the end of the event if there is no loop.
+
+	//FIXME: This emulates an RPG_RT bug where break loop ignores scopes and
+	//unconditionally jumps to the next EndLoop command.
+	auto pcode = list[index].code;
+	for (++index; index < (int)list.size(); ++index) {
+		if (pcode == Cmd::EndLoop) {
+			break;
+		}
+		pcode = list[index].code;
+	}
+
+	return true;
 }
 
 bool Game_Interpreter::CommandEndLoop(RPG::EventCommand const& com) { // code 22210
+	auto* frame = GetFrame();
+	assert(frame);
+	const auto& list = frame->commands;
+	auto& index = frame->current_command;
+
 	int indent = com.indent;
 
 	for (int idx = index; idx >= 0; idx--) {
@@ -3012,19 +3287,25 @@ bool Game_Interpreter::CommandEndLoop(RPG::EventCommand const& com) { // code 22
 		break;
 	}
 
+	// Jump past the Cmd::Loop to the first command.
+	if (index < (int)frame->commands.size()) {
+		++index;
+	}
+
 	return true;
 }
 
 bool Game_Interpreter::CommandEraseEvent(RPG::EventCommand const& /* com */) { // code 12320
+	auto* frame = GetFrame();
+	assert(frame);
+	auto& index = frame->current_command;
+
+	auto event_id = GetThisEventId();
+
+	// When a common event and not RPG2k3E engine ignore the call, otherwise
+	// operate on last map_event
 	if (event_id == 0)
 		return true;
-
-	if (!event_info.page && !Player::IsRPG2k3E()) {
-		// When a common event and not RPG2k3E engine ignore the call, otherwise
-		// this breaks games because older version did a no-op in this case
-		Output::Debug("Common Event %d: Erasing of the calling map event only supported in RPG2k3E", event_id, event_info.x, event_info.y);
-		return true;
-	}
 
 	Game_Event* evnt = Game_Map::GetEvent(event_id);
 	if (evnt) {
@@ -3047,13 +3328,6 @@ bool Game_Interpreter::CommandCallEvent(RPG::EventCommand const& com) { // code 
 	int evt_id;
 	int event_page;
 
-	if (child_interpreter)
-		return false;
-
-	clear_child = false;
-
-	child_interpreter.reset(new Game_Interpreter_Map(depth + 1, main_flag));
-
 	switch (com.parameters[0]) {
 	case 0: { // Common Event
 		evt_id = com.parameters[1];
@@ -3063,10 +3337,8 @@ bool Game_Interpreter::CommandCallEvent(RPG::EventCommand const& com) { // code 
 			return true;
 		}
 
-		// Forwarding the event_id is safe because all RPG Maker engines prior 2k3 1.12
-		// threw an error when ThisEvent was used in CommonEvents.
-		// The exception is EraseEvent which is handled special (see the code)
-		child_interpreter->Setup(common_event, event_id);
+		Push(common_event);
+
 		return true;
 	}
 	case 1: // Map Event
@@ -3082,25 +3354,29 @@ bool Game_Interpreter::CommandCallEvent(RPG::EventCommand const& com) { // code 
 	}
 
 	Game_Event* event = static_cast<Game_Event*>(GetCharacter(evt_id));
-	if (event) {
-		const RPG::EventPage* page = event->GetPage(event_page);
-		if (page) {
-			child_interpreter->Setup(page->event_commands, event->GetId(), false);
-			child_interpreter->event_info.x = event->GetX();
-			child_interpreter->event_info.y = event->GetY();
-			child_interpreter->event_info.page = page;
-		} else {
-			Output::Warning("CallEvent: Can't call non-existant page %d of event %d", event_page, evt_id);
-		}
+	if (!event) {
+		Output::Warning("CallEvent: Can't call non-existant event %d", evt_id);
+		return false;
 	}
+
+	const RPG::EventPage* page = event->GetPage(event_page);
+	if (!page) {
+		Output::Warning("CallEvent: Can't call non-existant page %d of event %d", event_page, evt_id);
+		return false;
+	}
+
+	Push(page->event_commands, event->GetId(), false);
 
 	return true;
 }
 
 bool Game_Interpreter::CommandReturnToTitleScreen(RPG::EventCommand const& /* com */) { // code 12510
-	Game_Temp::to_title = true;
-	SetContinuation(&Game_Interpreter::DefaultContinuation);
-	return false;
+	if (Game_Message::IsMessageActive()) {
+		return false;
+	}
+
+	_async_op = AsyncOp::MakeToTitle();
+	return true;
 }
 
 bool Game_Interpreter::CommandChangeClass(RPG::EventCommand const& com) { // code 1008
@@ -3255,11 +3531,11 @@ bool Game_Interpreter::CommandChangeBattleCommands(RPG::EventCommand const& com)
 }
 
 bool Game_Interpreter::CommandExitGame(RPG::EventCommand const& /* com */) {
-	if (Scene::Find(Scene::GameBrowser)) {
-		Scene::PopUntil(Scene::GameBrowser);
-	} else {
-		Player::exit_flag = true;
+	if (Game_Message::IsMessageActive()) {
+		return false;
 	}
+
+	_async_op = AsyncOp::MakeExitGame();
 	return true;
 }
 
@@ -3271,6 +3547,10 @@ bool Game_Interpreter::CommandToggleFullscreen(RPG::EventCommand const& /* com *
 }
 
 bool Game_Interpreter::DefaultContinuation(RPG::EventCommand const& /* com */) {
+	auto* frame = GetFrame();
+	assert(frame);
+	auto& index = frame->current_command;
+
 	continuation = NULL;
 	index++;
 	return true;
@@ -3280,5 +3560,5 @@ bool Game_Interpreter::DefaultContinuation(RPG::EventCommand const& /* com */) {
 
 bool Game_Interpreter::ContinuationOpenShop(RPG::EventCommand const& /* com */) { return true; }
 bool Game_Interpreter::ContinuationShowInnStart(RPG::EventCommand const& /* com */) { return true; }
-bool Game_Interpreter::ContinuationShowInnFinish(RPG::EventCommand const& /* com */) { return true; }
 bool Game_Interpreter::ContinuationEnemyEncounter(RPG::EventCommand const& /* com */) { return true; }
+

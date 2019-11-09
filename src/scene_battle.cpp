@@ -39,6 +39,7 @@
 #include "scene_battle_rpg2k3.h"
 #include "scene_gameover.h"
 #include "scene_debug.h"
+#include "game_interpreter.h"
 
 //netherware
 #include "game_switches.h"
@@ -57,6 +58,10 @@ Scene_Battle::~Scene_Battle() {
 }
 
 void Scene_Battle::Start() {
+	// RPG_RT will cancel any active screen flash from the map, including
+	// wiping out all flash LSD chunks.
+	Main_Data::game_screen->FlashOnce(0, 0, 0, 0, 0);
+
 	if (Game_Battle::battle_test.enabled) {
 		Game_Temp::battle_troop_id = Game_Battle::battle_test.troop_id;
 	}
@@ -97,6 +102,11 @@ void Scene_Battle::Start() {
 	CreateUi();
 
 	SetState(State_Start);
+}
+
+void Scene_Battle::Continue(SceneType prev_scene) {
+	// Debug scene / other scene could have changed party status.
+	status_window->Refresh();
 }
 
 void Scene_Battle::TransitionIn(SceneType prev_scene) {
@@ -178,7 +188,23 @@ void Scene_Battle::Update() {
 		ProcessInput();
 	}
 
+	auto& interp = Game_Battle::GetInterpreter();
+
+	bool events_running = interp.IsRunning();
 	Game_Battle::Update();
+	if (events_running && !interp.IsRunning()) {
+		// If an event that changed status finishes without displaying a message window,
+		// we need this so it can update automatically the status_window
+		status_window->Refresh();
+	}
+	if (interp.IsAsyncPending()) {
+		auto aop = interp.GetAsyncOp();
+		if (CheckSceneExit(aop)) {
+			return;
+		}
+
+		// Note: ShowScreen / HideScreen is ignored.
+	}
 
 	if (Game_Battle::IsTerminating()) {
 		Scene::Pop();
@@ -192,23 +218,6 @@ bool Scene_Battle::IsWindowMoving() {
 void Scene_Battle::InitBattleTest()
 {
 	Game_Temp::battle_troop_id = Game_Battle::battle_test.troop_id;
-	if (Player::IsRPG2k()) {
-		Game_Temp::battle_background = Data::system.battletest_background;
-		Game_Battle::SetTerrainId(Data::system.battletest_terrain);
-	} else {
-		int terrain_id = Game_Battle::battle_test.terrain_id;
-		// Allow fallback to battle background battle when the additional 2k3
-		// command line args are not passed (terrain_id = 0)
-		if (Game_Battle::battle_test.formation == RPG::System::BattleFormation_terrain &&
-			terrain_id > 0) {
-			Game_Battle::SetTerrainId(terrain_id);
-		} else {
-			Game_Temp::battle_background = Data::system.battletest_background;
-			// FIXME: figure out how the terrain is configured
-			Game_Battle::SetTerrainId(1);
-		}
-	}
-
 	Main_Data::game_party->SetupBattleTestMembers();
 
 	Main_Data::game_enemyparty.reset(new Game_EnemyParty());
@@ -543,6 +552,18 @@ void Scene_Battle::CreateEnemyActionBasic(Game_Enemy* enemy, const RPG::EnemyAct
 	ActionSelectedCallback(enemy);
 }
 
+void Scene_Battle::RemoveActionsForNonExistantBattlers() {
+	auto iter = std::remove_if(battle_actions.begin(), battle_actions.end(),
+			[](Game_Battler* b) {
+				if (!b->Exists()) {
+					b->SetBattleAlgorithm(nullptr);
+					return true;
+				}
+				return false;
+			});
+	battle_actions.erase(iter, battle_actions.end());
+}
+
 void Scene_Battle::RemoveCurrentAction() {
 	battle_actions.front()->SetBattleAlgorithm(nullptr);
 	battle_actions.pop_front();
@@ -558,19 +579,6 @@ void Scene_Battle::CreateEnemyActionSkill(Game_Enemy* enemy, const RPG::EnemyAct
 		Output::Warning("CreateEnemyAction: Enemy can't use invalid skill %d", action->skill_id);
 		return;
 	}
-
-
-	switch (skill->type) {
-		case RPG::Skill::Type_teleport:
-		case RPG::Skill::Type_escape:
-			// FIXME: Can enemy use this?
-			return;
-		case RPG::Skill::Type_switch:
-		case RPG::Skill::Type_normal:
-		case RPG::Skill::Type_subskill:
-		default:
-			break;
-		}
 
 	switch (skill->scope) {
 		case RPG::Skill::Scope_enemy:
@@ -601,6 +609,7 @@ void Scene_Battle::CreateEnemyActionSkill(Game_Enemy* enemy, const RPG::EnemyAct
 }
 
 void Scene_Battle::ActionSelectedCallback(Game_Battler* for_battler) {
+	assert(for_battler->GetBattleAlgorithm() != nullptr);
 	battle_actions.push_back(for_battler);
 
 	if (for_battler->GetType() == Game_Battler::Type_Ally) {
@@ -615,8 +624,3 @@ void Scene_Battle::CallDebug() {
 	}
 }
 
-void Scene_Battle::onCommandEnd() {
-	// If an event that changed status finishes without displaying a message window,
-	// we need this so it can update automatically the status_window
-	status_window->Refresh();
-}

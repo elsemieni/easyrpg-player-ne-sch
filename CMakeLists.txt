@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.7)
 
-project(EasyRPG_Player VERSION 0.6.0 LANGUAGES CXX)
+project(EasyRPG_Player VERSION 0.6.1 LANGUAGES CXX)
 
-# C++11 is required
-set(CMAKE_CXX_STANDARD 11)
+# C++14 is required
+set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -13,6 +13,7 @@ add_library(${PROJECT_NAME}
 	src/3ds_ui.h
 	src/async_handler.cpp
 	src/async_handler.h
+	src/async_op.h
 	src/audio_3ds.cpp
 	src/audio_3ds.h
 	src/audio_al.cpp
@@ -164,6 +165,8 @@ add_library(${PROJECT_NAME}
 	src/memory_management.h
 	src/message_overlay.cpp
 	src/message_overlay.h
+	src/meta.cpp
+	src/meta.h
 	src/options.h
 	src/output.cpp
 	src/output.h
@@ -180,8 +183,9 @@ add_library(${PROJECT_NAME}
 	src/registry.cpp
 	src/registry.h
 	src/registry_wine.cpp
+	src/rtp.cpp
+	src/rtp.h
 	src/rtp_table.cpp
-	src/rtp_table.h
 	src/scene_actortarget.cpp
 	src/scene_actortarget.h
 	src/scene_battle.cpp
@@ -204,6 +208,8 @@ add_library(${PROJECT_NAME}
 	src/scene_gameover.cpp
 	src/scene_gameover.h
 	src/scene.h
+	src/scene_import.cpp
+	src/scene_import.h
 	src/scene_item.cpp
 	src/scene_item.h
 	src/scene_load.cpp
@@ -311,6 +317,8 @@ add_library(${PROJECT_NAME}
 	src/window.h
 	src/window_help.cpp
 	src/window_help.h
+	src/window_import_progress.cpp
+	src/window_import_progress.h
 	src/window_item.cpp
 	src/window_item.h
 	src/window_keyboard.cpp
@@ -774,7 +782,7 @@ if(${PLAYER_AUDIO_BACKEND} MATCHES "^(SDL.*|libretro)$")
 
 	if(LIBSNDFILE_FOUND)
 		message(STATUS "WAV playback: libsndfile")
-	elseif(SDL2_mixer_FOUND)
+	elseif(SDL2_MIXER_FOUND)
 		set(SDL_MIXER_USED ON)
 		message(STATUS "WAV playback: SDL2_mixer")
 	else()
@@ -792,7 +800,7 @@ if(${PLAYER_AUDIO_BACKEND} MATCHES "^(SDL.*|libretro)$")
 	elseif(PLAYER_ENABLE_FMMIDI)
 		message(STATUS "MIDI playback: built-in (FmMidi)")
 	else()
-		if(SDL2_mixer_FOUND)
+		if(SDL2_MIXER_FOUND)
 			message(STATUS "MIDI playback: SDL2_mixer.")
 		else()
 			message(STATUS "MIDI playback: None")
@@ -801,7 +809,7 @@ if(${PLAYER_AUDIO_BACKEND} MATCHES "^(SDL.*|libretro)$")
 
 	if(MPG123_FOUND)
 		message(STATUS "MP3 playback: mpg123")
-	elseif(SDL2_mixer_FOUND)
+	elseif(SDL2_MIXER_FOUND)
 		set(SDL_MIXER_USED ON)
 		message(STATUS "MP3 playback: SDL2_mixer")
 	else()
@@ -816,7 +824,7 @@ if(${PLAYER_AUDIO_BACKEND} MATCHES "^(SDL.*|libretro)$")
 
 	if(VORBISFILE_FOUND)
 		message(STATUS "Ogg Vorbis playback: libvorbis")
-	elseif(SDL2_mixer_FOUND)
+	elseif(SDL2_MIXER_FOUND)
 		set(SDL_MIXER_USED ON)
 		message(STATUS "Ogg Vorbis playback: SDL2_mixer")
 	else()
@@ -825,7 +833,7 @@ if(${PLAYER_AUDIO_BACKEND} MATCHES "^(SDL.*|libretro)$")
 
 	if(XMP_FOUND)
 		message(STATUS "MOD playback: libxmp")
-	elseif(SDL2_mixer_FOUND)
+	elseif(SDL2_MIXER_FOUND)
 		set(SDL_MIXER_USED ON)
 		message(STATUS "MOD playback: SDL2_mixer")
 	else()
@@ -842,7 +850,7 @@ if(${PLAYER_AUDIO_BACKEND} MATCHES "^(SDL.*|libretro)$")
 		message(STATUS "Resampler: speexdsp")
 	elseif(SAMPLERATE_FOUND)
 		message(STATUS "Resampler: libsamplerate")
-	elseif(SDL2_mixer_FOUND)
+	elseif(SDL2_MIXER_FOUND)
 		set(SDL_MIXER_USED ON)
 		message(STATUS "Resampler: SDL2")
 	else()

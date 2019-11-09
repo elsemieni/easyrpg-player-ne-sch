@@ -54,6 +54,7 @@ public:
 
 	bool IsPendingTeleport() const;
 	TeleportTarget GetTeleportTarget() const;
+	void ResetTeleportTarget();
 
 	/**
 	 * Sets the map, position and direction that the game player must have after the teleport is over
@@ -62,8 +63,9 @@ public:
 	 * @param x new x position after teleport
 	 * @param y new y position after teleport
 	 * @param direction New direction after teleport. If -1, the direction isn't changed.
+	 * @param tt teleport type
 	 */
-	void ReserveTeleport(int map_id, int x, int y, int direction);
+	void ReserveTeleport(int map_id, int x, int y, int direction, TeleportTarget::Type tt);
 	void ReserveTeleport(const RPG::SaveTarget& target);
 	void PerformTeleport();
 
@@ -139,6 +141,10 @@ inline bool Game_Player::IsPendingTeleport() const {
 
 inline TeleportTarget Game_Player::GetTeleportTarget() const {
 	return teleport_target;
+}
+
+inline void Game_Player::ResetTeleportTarget() {
+	teleport_target = {};
 }
 
 inline void Game_Player::SetMenuCalling(bool value) {

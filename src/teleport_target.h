@@ -25,6 +25,18 @@
  */
 class TeleportTarget {
 	public:
+		/** The type of teleport */
+		enum Type {
+			/** A teleport command from a parallel event */
+			eParallelTeleport,
+			/** A teleport command from a foreground event*/
+			eForegroundTeleport,
+			/** An escape or teleport skill */
+			eSkillTeleport,
+			/** A hacky teleport from a SetVehicleLocation() (RPG_RT bug) */
+			eVehicleHackTeleport,
+		};
+
 		/** Construct an inactive target */
 		TeleportTarget() = default;
 
@@ -34,8 +46,9 @@ class TeleportTarget {
 		 * @param x x position
 		 * @param y y position
 		 * @param d d direction, or -1 if retain direction.
+		 * @param tt teleport type
 		 */
-		TeleportTarget(int map_id, int x, int y, int d);
+		TeleportTarget(int map_id, int x, int y, int d, Type tt);
 
 		/** @return map id */
 		int GetMapId() const;
@@ -51,20 +64,25 @@ class TeleportTarget {
 
 		/** @return whether this is active */
 		bool IsActive() const;
+
+		/** @return teleport type */
+		Type GetType() const;
 	private:
 		int map_id = 0;
 		int x = 0;
 		int y = 0;
 		int16_t d = -1;
+		uint8_t tt = eParallelTeleport;
 		bool active = false;
 };
 
 
-inline TeleportTarget::TeleportTarget(int map_id, int x, int y, int d)
+inline TeleportTarget::TeleportTarget(int map_id, int x, int y, int d, Type tt)
 	: map_id(map_id)
 	  , x(x)
 	  , y(y)
 	  , d(d)
+	  , tt(tt)
 	  , active(true)
 { }
 
@@ -86,6 +104,10 @@ inline int TeleportTarget::GetDirection() const {
 
 inline bool TeleportTarget::IsActive() const {
 	return active;
+}
+
+inline TeleportTarget::Type TeleportTarget::GetType() const {
+	return Type(tt);
 }
 
 #endif

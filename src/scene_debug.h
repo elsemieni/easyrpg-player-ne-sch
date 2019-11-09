@@ -60,37 +60,45 @@ public:
 	 */
 	int GetIndex();
 
+	/**
+	 * Resets the remembered indices
+	 */
+	static void ResetPrevIndices();
+
 private:
 	enum Mode {
 		eMain,
 		eSwitch,
+		eSwitchSelect,
 		eVariable,
+		eVariableSelect,
+		eVariableValue,
 		eGold,
 		eItem,
-		eBattle
+		eItemSelect,
+		eItemValue,
+		eBattle,
+		eBattleSelect,
+		eMap,
+		eMapSelect,
+		eMapX,
+		eMapY,
+		eFullHeal,
+		eCallEvent,
+		eCallEventSelect
 	};
 	/** Current variables being displayed (Switches or Integers). */
 	Mode mode = eMain;
+
+	struct PrevIndex;
+	struct IndexSet;
+
+	static PrevIndex prev;
+
 	/** Current Page being displayed */
 	int range_page = 0;
 	/** Current range being displayed. */
 	int range_index = 0;
-	/** Last range_index used for switch */
-	int prev_switch_range_index = 0;
-	/** Last range page used for switch */
-	int prev_switch_range_page = 0;
-	/** Last range index used for variable */
-	int prev_variable_range_index = 0;
-	/** Last range page used for variable */
-	int prev_variable_range_page = 0;
-	/** Last range index used for item */
-	int prev_item_range_index = 0;
-	/** Last range page used for item */
-	int prev_item_range_page = 0;
-	/** Last range index used for troop */
-	int prev_troop_range_index = 0;
-	/** Last range page used for troop */
-	int prev_troop_range_page = 0;
 
 	/** Creates Range window. */
 	void CreateRangeWindow();
@@ -104,12 +112,48 @@ private:
 	/** Get the last page for the current mode */
 	int GetLastPage();
 
+	void SetupListOption(Mode mode, Window_VarList::Mode winmode, const IndexSet& idx);
+	void UseRangeWindow();
+	void UseVarWindow();
+	void UseNumberWindow();
+
+	void EnterFromMain();
+	void EnterFromListOption(Mode m, const IndexSet& idx);
+	void EnterFromListOptionToValue(Mode m, int init_value, int digits, bool show_operator);
+
+	void EnterGold();
+	void EnterMapSelectX();
+	void EnterMapSelectY();
+	void EnterFullHeal();
+
+	void CancelListOption(IndexSet& idx, int from_idx);
+	void CancelListOptionSelect(Mode m, IndexSet& idx);
+	void CancelListOptionValue(Mode m);
+
+	void CancelMapSelectY();
+
+	void ReturnToMain(int from_idx);
+
+	void DoSwitch();
+	void DoVariable();
+	void DoGold();
+	void DoItem();
+	void DoBattle();
+	void DoMap();
+	void DoFullHeal();
+	void DoCallEvent();
+
 	/** Displays a range selection for mode. */
 	std::unique_ptr<Window_Command> range_window;
 	/** Displays the vars inside the current range. */
 	std::unique_ptr<Window_VarList> var_window;
 	/** Number Editor. */
 	std::unique_ptr<Window_NumberInput> numberinput_window;
+
+	int pending_map_id = 0;
+	int pending_map_x = 0;
+	int pending_map_y = 0;
+
 };
 
 #endif

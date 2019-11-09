@@ -21,6 +21,7 @@
 // Headers
 #include "graphics.h"
 #include "system.h"
+#include "async_op.h"
 #include <vector>
 
 /**
@@ -105,8 +106,10 @@ public:
 	 * This function is executed before the fade out for
 	 * the scene change, either when terminating the scene
 	 * or switching to a nested scene
+	 *
+	 * @param next_scene the scene we will transition to
 	 */
-	virtual void Suspend();
+	virtual void Suspend(SceneType next_scene);
 
 	/**
 	 * Does the transition upon starting or resuming
@@ -195,9 +198,6 @@ public:
 
 	Graphics::State& GetGraphicsState();
 
-	/** Called by the interpreter when an event finishes processing */
-	virtual void onCommandEnd() {}
-
 	/** @return true if the Scene has been initialized */
 	bool IsInitialized() const;
 
@@ -213,6 +213,13 @@ public:
 	 * @param scene the scene to call
 	 */
 	void SetRequestedScene(SceneType scene);
+
+	/**
+	 * Check if the async operation wants to end the scene.
+	 *
+	 * @param aop The pending async operation
+	 */
+	static bool CheckSceneExit(AsyncOp aop);
 
 protected:
 	using AsyncContinuation = std::function<void(void)>;

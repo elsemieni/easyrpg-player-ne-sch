@@ -23,6 +23,7 @@
 #include "spriteset_map.h"
 #include "window_message.h"
 #include "window_varlist.h"
+#include "game_map.h"
 
 /**
  * Scene Map class.
@@ -55,22 +56,52 @@ public:
 	std::unique_ptr<Spriteset_Map> spriteset;
 
 private:
-	void StartPendingTeleport();
-	void FinishPendingTeleport();
-	void PreUpdate();
-	// Handles event requested transitions.
-	void UpdateStage2();
+	enum TeleportTransitionRule {
+		eTransitionNormal,
+		eTransitionFade,
+		eTransitionForceFade,
+		eTransitionNone
+	};
+
+	void Start2(MapUpdateAsyncContext actx);
+
+	struct TeleportParams {
+		bool run_foreground_events = false;
+		bool erase_screen = false;
+		bool use_default_transition_in = false;
+		bool defer_recursive_teleports = false;
+	};
+	void StartPendingTeleport(TeleportParams tp);
+	void FinishPendingTeleport(TeleportParams tp);
+	void FinishPendingTeleport2(MapUpdateAsyncContext actx, TeleportParams tp);
+	void FinishPendingTeleport3(MapUpdateAsyncContext actx, TeleportParams tp);
+
+	void PreUpdate(MapUpdateAsyncContext& actx);
+	void PreUpdateForegroundEvents(MapUpdateAsyncContext& actx);
+
+	// Calls map update
+	void UpdateStage1(MapUpdateAsyncContext actx);
 	// Handles pending teleport and scene changes.
-	void UpdateStage3();
+	void UpdateStage2();
+
 	void UpdateSceneCalling();
+
+	void StartInn();
+	void UpdateInn();
+	void FinishInn();
+
+	template <typename F> void AsyncNext(F&& f);
+	template <typename F> void OnAsyncSuspend(F&& f, AsyncOp aop, bool is_preupdate);
 
 	std::unique_ptr<Window_Message> message_window;
 
 	int debug_menuoverwrite_counter = 0;
 	bool from_save;
-	// Teleport from new game or Teleport / Escape skill from menu.
-	bool teleport_from_other_scene = false;
 	bool screen_erased_by_event = false;
+
+	RPG::Music music_before_inn = {};
+	AsyncContinuation inn_continuation = {};
+	bool activate_inn = false;
 };
 
 #endif

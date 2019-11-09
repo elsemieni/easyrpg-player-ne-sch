@@ -24,6 +24,7 @@
 #include "game_interpreter_map.h"
 #include "rpg_commonevent.h"
 #include "rpg_saveeventexecstate.h"
+#include "async_op.h"
 
 /**
  * Game_CommonEvent class.
@@ -45,14 +46,12 @@ public:
 	void SetSaveData(const RPG::SaveEventExecState& data);
 
 	/**
-	 * Refreshes the common event.
-	 */
-	void Refresh();
-
-	/**
 	 * Updates common event parallel interpreter.
+	 *
+	 * @param resume_async If we're resuming from an async operation.
+	 * @return async operation if we should suspend, otherwise returns AsyncOp::eNone
 	 */
-	void Update();
+	AsyncOp Update(bool resume_async);
 
 	/**
 	 * Gets common event index.
@@ -101,12 +100,13 @@ public:
 	/** @return true if waiting for foreground execution */
 	bool IsWaitingForegroundExecution() const;
 
-	/** @return true if waiting for background execution */
-	bool IsWaitingBackgroundExecution() const;
+	/**
+	 * @param force_run force the event to execute even if conditions not met.
+	 * @return true if waiting for background execution
+	 */
+	bool IsWaitingBackgroundExecution(bool force_run) const;
 
 private:
-	bool IsWaitingExecution(RPG::EventPage::Trigger trigger) const;
-
 	int common_event_id;
 
 	/** Interpreter for parallel common events. */

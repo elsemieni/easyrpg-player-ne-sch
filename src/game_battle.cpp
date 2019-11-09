@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cassert>
 #include "data.h"
+#include "player.h"
 #include "game_actors.h"
 #include "game_enemyparty.h"
 #include "game_message.h"
@@ -51,7 +52,6 @@ namespace Game_Battle {
 }
 
 namespace {
-	int turn;
 	std::vector<bool> page_executed;
 	int terrain_id;
 	int battle_mode;
@@ -63,12 +63,12 @@ namespace {
 }
 
 void Game_Battle::Init() {
-	interpreter.reset(new Game_Interpreter_Battle(0, true));
+	interpreter.reset(new Game_Interpreter_Battle());
 	spriteset.reset(new Spriteset_Battle());
 	animation.reset();
 
 	Game_Temp::battle_running = true;
-	turn = 0;
+	Main_Data::game_data.inventory.turns = 0;
 	terminate = false;
 	escape_fail_count = 0;
 	target_enemy_index = 0;
@@ -126,7 +126,13 @@ void Game_Battle::Quit() {
 
 void Game_Battle::Update() {
 	interpreter->Update();
+	if (interpreter->IsAsyncPending()) {
+		terminate = true;
+		return;
+	}
+
 	Main_Data::game_screen->Update();
+
 	spriteset->Update();
 	if (animation) {
 		animation->Update();
@@ -189,28 +195,16 @@ Spriteset_Battle& Game_Battle::GetSpriteset() {
 	return *spriteset;
 }
 
-void Game_Battle::ShowBattleAnimation(int animation_id, Game_Battler* target, bool flash, bool only_sound, int cutoff) {
-	Main_Data::game_data.screen.battleanim_id = animation_id;
-
-	const RPG::Animation* anim = ReaderUtil::GetElement(Data::animations, animation_id);
-	if (!anim) {
-		Output::Warning("ShowBattleAnimation Single: Invalid animation ID %d", animation_id);
-		return;
-	}
-
-	animation.reset(new BattleAnimationBattlers(*anim, *target, flash, only_sound, cutoff));
-}
-
-void Game_Battle::ShowBattleAnimation(int animation_id, const std::vector<Game_Battler*>& targets, bool flash, bool only_sound, int cutoff) {
-	Main_Data::game_data.screen.battleanim_id = animation_id;
-
+int Game_Battle::ShowBattleAnimation(int animation_id, std::vector<Game_Battler*> targets, bool only_sound, int cutoff) {
 	const RPG::Animation* anim = ReaderUtil::GetElement(Data::animations, animation_id);
 	if (!anim) {
 		Output::Warning("ShowBattleAnimation Many: Invalid animation ID %d", animation_id);
-		return;
+		return 0;
 	}
 
-	animation.reset(new BattleAnimationBattlers(*anim, targets, flash, only_sound, cutoff));
+	animation.reset(new BattleAnimationBattle(*anim, std::move(targets), only_sound, cutoff));
+	auto frames = animation->GetFrames();
+	return cutoff >= 0 ? std::min(frames, cutoff) : frames;
 }
 
 bool Game_Battle::IsBattleAnimationWaiting() {
@@ -249,7 +243,7 @@ void Game_Battle::NextTurn(Game_Battler* battler) {
 		}
 	}
 
-	++turn;
+	++Main_Data::game_data.inventory.turns;
 }
 
 void Game_Battle::UpdateGauges() {
@@ -279,8 +273,21 @@ void Game_Battle::ChangeBackground(const std::string& name) {
 	background_name = name;
 }
 
+const std::string& Game_Battle::GetBackground() {
+	return background_name;
+}
+
+int Game_Battle::GetEscapeFailureCount() {
+	return escape_fail_count;
+}
+
+void Game_Battle::IncEscapeFailureCount() {
+	++escape_fail_count;
+}
+
+
 int Game_Battle::GetTurn() {
-	return turn;
+	return Main_Data::game_data.inventory.turns;
 }
 
 bool Game_Battle::CheckTurns(int turns, int base, int multiple) {
@@ -373,7 +380,8 @@ bool Game_Battle::UpdateEvents() {
 
 	for (const auto& page : troop->pages) {
 		if (page_can_run[page.ID - 1]) {
-			interpreter->Setup(page.event_commands, 0);
+			interpreter->Clear();
+			interpreter->Push(page.event_commands, 0);
 			page_can_run[page.ID - 1] = false;
 			page_executed[page.ID - 1] = true;
 			return false;
@@ -449,4 +457,27 @@ int Game_Battle::GetEnemyTargetIndex() {
 
 void Game_Battle::SetNeedRefresh(bool refresh) {
 	need_refresh = refresh;
+}
+
+bool Game_Battle::HasDeathHandler() {
+	// RPG Maker Editor always sets both death_handler and death_handler_unused chunks.
+	// However, RPG_RT will only trigger death handler based on the death_handler chunk.
+	auto& db = Data::battlecommands;
+	return Player::IsRPG2k3() && db.death_handler;
+}
+
+int Game_Battle::GetDeathHandlerCommonEvent() {
+	auto& db = Data::battlecommands;
+	if (HasDeathHandler()) {
+		return db.death_event;
+	}
+	return 0;
+}
+
+TeleportTarget Game_Battle::GetDeathHandlerTeleport() {
+	auto& db = Data::battlecommands;
+	if (HasDeathHandler() && db.death_teleport) {
+		return TeleportTarget(db.death_teleport_id, db.death_teleport_x, db.death_teleport_y, db.death_teleport_face -1, TeleportTarget::eParallelTeleport);
+	}
+	return {};
 }

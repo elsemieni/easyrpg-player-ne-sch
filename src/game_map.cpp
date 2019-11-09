@@ -24,7 +24,6 @@
 
 #include "async_handler.h"
 #include "system.h"
-#include "battle_animation.h"
 #include "game_battle.h"
 #include "game_battler.h"
 #include "game_map.h"
@@ -44,6 +43,8 @@
 #include "player.h"
 #include "input.h"
 #include "utils.h"
+#include "window_message.h"
+#include "scope_guard.h"
 
 namespace {
 	constexpr int default_pan_x = 9 * SCREEN_TILE_SIZE;
@@ -69,11 +70,9 @@ namespace {
 	std::unique_ptr<RPG::Map> map;
 
 	std::unique_ptr<Game_Interpreter_Map> interpreter;
-	std::vector<std::shared_ptr<Game_Interpreter> > free_interpreters;
 	std::vector<std::shared_ptr<Game_Vehicle> > vehicles;
 	std::vector<Game_Character*> pending;
 
-	std::unique_ptr<BattleAnimation> animation;
 
 	bool pan_wait;
 
@@ -88,6 +87,27 @@ namespace {
 	bool reset_panorama_y_on_next_init = true;
 }
 
+void Game_Map::OnContinueFromBattle() {
+	Game_System::BgmPlay(Main_Data::game_data.system.before_battle_music);
+
+	// 2k3 Death Handlers
+	if (Game_Temp::battle_result == Game_Temp::BattleDefeat
+			&& Game_Temp::battle_random_encounter
+			&& Game_Battle::HasDeathHandler())
+	{
+		auto* ce = ReaderUtil::GetElement(common_events, Game_Battle::GetDeathHandlerCommonEvent());
+		if (ce) {
+			auto& interp = GetInterpreter();
+			interp.Push(ce);
+		}
+
+		auto tt = Game_Battle::GetDeathHandlerTeleport();
+		if (tt.IsActive()) {
+			Main_Data::game_player->ReserveTeleport(tt.GetMapId(), tt.GetX(), tt.GetY(), tt.GetDirection(), tt.GetType());
+		}
+	}
+}
+
 static Game_Map::Parallax::Params GetParallaxParams();
 
 void Game_Map::Init() {
@@ -98,7 +118,7 @@ void Game_Map::Init() {
 	refresh_type = Refresh_All;
 
 	location.map_id = 0;
-	interpreter.reset(new Game_Interpreter_Map(0, true));
+	interpreter.reset(new Game_Interpreter_Map(true));
 	map_info.encounter_rate = 0;
 
 	common_events.clear();
@@ -122,16 +142,15 @@ void Game_Map::Init() {
 	last_map_id = -1;
 }
 
-void Game_Map::Dispose() {
+void Game_Map::Dispose(bool clear_screen) {
 	events.clear();
 	pending.clear();
 
-	if (Main_Data::game_screen) {
+	if (Main_Data::game_screen && clear_screen) {
 		Main_Data::game_screen->Reset();
 	}
 
 	map.reset();
-	animation.reset();
 }
 
 void Game_Map::Quit() {
@@ -141,8 +160,8 @@ void Game_Map::Quit() {
 	interpreter.reset();
 }
 
-void Game_Map::Setup(int _id) {
-	Dispose();
+void Game_Map::Setup(int _id, TeleportTarget::Type tt) {
+	Dispose(tt != TeleportTarget::eVehicleHackTeleport);
 	SetupCommon(_id, false);
 	map_info.encounter_rate = GetMapInfo().encounter_steps;
 	SetEncounterSteps(0);
@@ -193,7 +212,7 @@ void Game_Map::Setup(int _id) {
 			break;
 		}
 		if (parent_index < 0) {
-			Output::Warning("Map %d has invalid parent id %d!", Data::treemap.maps[current_index].parent_map);
+			Output::Warning("Map %d has invalid parent id %d!", Data::treemap.maps[current_index].ID, Data::treemap.maps[current_index].parent_map);
 			break;
 		}
 		current_index = parent_index;
@@ -210,13 +229,19 @@ void Game_Map::Setup(int _id) {
 	Game_System::SetAllowSave(can_save != RPG::MapInfo::TriState_forbid);
 	Game_System::SetAllowEscape(can_escape != RPG::MapInfo::TriState_forbid);
 	Game_System::SetAllowTeleport(can_teleport != RPG::MapInfo::TriState_forbid);
+
+	if (interpreter) {
+		if (tt != TeleportTarget::eVehicleHackTeleport) {
+			interpreter->OnMapChange();
+		}
+	}
 }
 
 void Game_Map::SetupFromSave() {
 	SetupCommon(location.map_id, true);
 
 	// Make main interpreter "busy" if save contained events to prevent auto-events from starting
-	interpreter->SetupFromSave(Main_Data::game_data.foreground_event_execstate.stack);
+	interpreter->SetState(Main_Data::game_data.foreground_event_execstate);
 
 	events.reserve(map->events.size());
 	for (size_t i = 0; i < map->events.size(); ++i) {
@@ -244,7 +269,6 @@ void Game_Map::SetupFromSave() {
 	SetChipset(map_info.chipset_id);
 
 	SetEncounterSteps(location.encounter_steps);
-
 
 	// We want to support loading rm2k3e panning chunks
 	// but also not break other saves which don't have them.
@@ -341,7 +365,7 @@ void Game_Map::SetupCommon(int _id, bool is_load_savegame) {
 }
 
 void Game_Map::PrepareSave() {
-	Main_Data::game_data.foreground_event_execstate.stack = interpreter->GetSaveData();
+	Main_Data::game_data.foreground_event_execstate = interpreter->GetState();
 
 	map_info.events.clear();
 	map_info.events.reserve(events.size());
@@ -366,9 +390,9 @@ void Game_Map::PlayBgm() {
 		return;
 	}
 
-	int current_index = GetMapIndex(location.map_id);
-	last_map_id = current_index;
+	last_map_id = location.map_id;
 
+	int current_index = GetMapIndex(location.map_id);
 	while (Data::treemap.maps[current_index].music_type == 0 && GetMapIndex(Data::treemap.maps[current_index].parent_map) != current_index) {
 		current_index = GetMapIndex(Data::treemap.maps[current_index].parent_map);
 	}
@@ -391,12 +415,6 @@ void Game_Map::Refresh() {
 		for (Game_Event& ev : events) {
 			ev.Refresh();
 		}
-
-		if (refresh_type == Refresh_All) {
-			for (Game_CommonEvent& ev : common_events) {
-				ev.Refresh();
-			}
-		}
 	}
 
 	refresh_type = Refresh_None;
@@ -405,10 +423,6 @@ void Game_Map::Refresh() {
 Game_Interpreter_Map& Game_Map::GetInterpreter() {
 	assert(interpreter);
 	return *interpreter;
-}
-
-void Game_Map::ReserveInterpreterDeletion(std::shared_ptr<Game_Interpreter> interpreter) {
-	free_interpreters.push_back(interpreter);
 }
 
 void Game_Map::ScrollRight(int distance) {
@@ -494,6 +508,14 @@ static bool WouldCollide(const Game_Character& self, const Game_Character& other
 		return false;
 	}
 
+	if (self.GetType() == Game_Character::Event && static_cast<const Game_Event&>(self).GetActivePage() == nullptr) {
+		return false;
+	}
+
+	if (other.GetType() == Game_Character::Event && static_cast<const Game_Event&>(other).GetActivePage() == nullptr) {
+		return false;
+	}
+
 	if (self.GetType() == Game_Character::Event
 			&& other.GetType() == Game_Character::Event
 			&& (self.IsOverlapForbidden() || other.IsOverlapForbidden())) {
@@ -512,6 +534,15 @@ static bool WouldCollide(const Game_Character& self, const Game_Character& other
 }
 
 template <typename T>
+static void MakeWayUpdate(T& other) {
+	other.Update();
+}
+
+static void MakeWayUpdate(Game_Event& other) {
+	other.Update(false);
+}
+
+template <typename T>
 static bool MakeWayCollideEvent(int x, int y, const Game_Character& self, T& other, bool self_conflict) {
 	if (&self == &other) {
 		return false;
@@ -522,7 +553,7 @@ static bool MakeWayCollideEvent(int x, int y, const Game_Character& self, T& oth
 	}
 
 	// Force the other event to update, allowing them to possibly move out of the way.
-	other.Update();
+	MakeWayUpdate(other);
 
 	if (!other.IsInPosition(x, y)) {
 		return false;
@@ -679,7 +710,8 @@ bool Game_Map::CanDisembarkShip(Game_Player& player, int x, int y) {
 	for (auto& ev: GetEvents()) {
 		if (ev.IsInPosition(x, y)
 			&& ev.GetLayer() == RPG::EventPage::Layers_same
-			&& ev.IsActive()) {
+			&& ev.IsActive()
+			&& ev.GetActivePage() != nullptr) {
 			return false;
 		}
 	}
@@ -747,7 +779,7 @@ bool Game_Map::IsPassableTile(const Game_Character* self, int bit, int x, int y)
 		if (self == &ev) {
 			continue;
 		}
-		if (!ev.IsActive() || ev.GetThrough()) {
+		if (!ev.IsActive() || ev.GetActivePage() == nullptr || ev.GetThrough()) {
 			continue;
 		}
 		if (ev.IsInPosition(x, y) && ev.GetLayer() == RPG::EventPage::Layers_below) {
@@ -813,29 +845,38 @@ bool Game_Map::IsCounter(int x, int y) {
 }
 
 int Game_Map::GetTerrainTag(int x, int y) {
-	// Terrain tag wraps on looping maps
-	x = RoundX(x);
-	y = RoundY(y);
-
-	if (!Game_Map::IsValid(x, y) || !chipset) return 9;
-
-	unsigned const chipID = map->lower_layer[x + y * GetWidth()];
-	unsigned chip_index =
-		(chipID <  3050)?  0 + chipID/1000 :
-		(chipID <  4000)?  4 + (chipID-3050)/50 :
-		(chipID <  5000)?  6 + (chipID-4000)/50 :
-		(chipID <  5144)? 18 + (chipID-5000) :
-		0;
-
-	// Apply tile substitution
-	if (chip_index >= 18 && chip_index <= 144)
-		chip_index = map_info.lower_tiles[chip_index - 18] + 18;
+	if (!chipset) {
+		// FIXME: Is this ever possible?
+		return 1;
+	}
 
 	auto& terrain_data = chipset->terrain_data;
 
 	if (terrain_data.empty()) {
 		// RPG_RT optimisation: When the terrain is all 1, no terrain data is stored
 		return 1;
+	}
+
+	// Terrain tag wraps on looping maps
+	if (Game_Map::LoopHorizontal()) {
+		x = RoundX(x);
+	}
+	if (Game_Map::LoopVertical()) {
+		y = RoundY(y);
+	}
+
+	// RPG_RT always uses the terrain of the first lower tile
+	// for out of bounds coordinates.
+	unsigned chip_index = 0;
+
+	if (Game_Map::IsValid(x, y)) {
+		const auto chip_id = map->lower_layer[x + y * GetWidth()];
+		chip_index = ChipIdToIndex(chip_id);
+
+		// Apply tile substitution
+		if (chip_index >= BLOCK_E_INDEX && chip_index < NUM_LOWER_TILES) {
+			chip_index = map_info.lower_tiles[chip_index - BLOCK_E_INDEX] + BLOCK_E_INDEX;
+		}
 	}
 
 	assert(chip_index < terrain_data.size());
@@ -849,6 +890,17 @@ void Game_Map::GetEventsXY(std::vector<Game_Event*>& events, int x, int y) {
 			events.push_back(&ev);
 		}
 	}
+}
+
+Game_Event* Game_Map::GetEventAt(int x, int y, bool require_active) {
+	auto& events = GetEvents();
+	for (auto iter = events.rbegin(); iter != events.rend(); ++iter) {
+		auto& ev = *iter;
+		if (ev.IsInPosition(x, y) && (!require_active || ev.IsActive())) {
+			return &ev;
+		}
+	}
+	return nullptr;
 }
 
 bool Game_Map::LoopHorizontal() {
@@ -893,57 +945,61 @@ int Game_Map::CheckEvent(int x, int y) {
 	return 0;
 }
 
-static bool RunNextForegroundCommonEvent(Game_Interpreter_Map& interp) {
-	Game_CommonEvent* run_ce = nullptr;
-	for (auto& ce: common_events) {
-		if (ce.IsWaitingForegroundExecution()) {
-			run_ce = &ce;
-			break;
-		}
-	}
-
-	if (!run_ce) {
-		return false;
-	}
-
-	interp.Setup(run_ce, 0);
-	interp.Update(false);
-
-	return true;
-}
-
-static bool RunNextForegroundMapEvent(Game_Interpreter_Map& interp) {
-	Game_Event* run_ev = nullptr;
-	for (auto& ev: events) {
-		if (ev.IsWaitingForegroundExecution()) {
-			if (!ev.IsActive()) {
-				ev.ClearWaitingForegroundExecution();
-				continue;
-			}
-			run_ev = &ev;
-			break;
-		}
-	}
-
-	if (run_ev == nullptr) {
-		return false;
-	}
-
-	interp.Setup(run_ev);
-	run_ev->ClearWaitingForegroundExecution();
-	interp.Update(false);
-	return true;
-}
-
-void Game_Map::Update(bool is_preupdate) {
+void Game_Map::Update(MapUpdateAsyncContext& actx, Window_Message& message, bool is_preupdate) {
 	if (GetNeedRefresh() != Refresh_None) Refresh();
-	if (animation) {
-		animation->Update();
-		if (animation->IsDone()) {
-			animation.reset();
+
+	if (!actx.IsActive()) {
+		//If not resuming from async op ...
+		UpdateProcessedFlags(is_preupdate);
+	}
+
+	if (!actx.IsActive() || actx.IsParallelCommonEvent()) {
+		if (!UpdateCommonEvents(actx)) {
+			// Suspend due to common event async op ...
+			return;
 		}
 	}
 
+	if (!actx.IsActive() || actx.IsParallelMapEvent()) {
+		if (!UpdateMapEvents(actx)) {
+			// Suspend due to map event async op ...
+			return;
+		}
+	}
+
+	if (is_preupdate) {
+		return;
+	}
+
+	if (!actx.IsActive()) {
+		//If not resuming from async op ...
+		Main_Data::game_player->Update();
+		UpdatePan();
+
+		for (auto& vehicle: vehicles) {
+			if (vehicle->GetMapId() == location.map_id) {
+				vehicle->Update();
+			}
+		}
+
+		message.Update();
+		Main_Data::game_party->UpdateTimers();
+		Main_Data::game_screen->Update();
+	}
+
+	if (!actx.IsActive() || actx.IsForegroundEvent()) {
+		if (!UpdateForegroundEvents(actx, message)) {
+			// Suspend due to foreground event async op ...
+			return;
+		}
+	}
+
+	Parallax::Update();
+
+	actx = {};
+}
+
+void Game_Map::UpdateProcessedFlags(bool is_preupdate) {
 	for (Game_Event& ev : events) {
 		ev.SetProcessed(false);
 	}
@@ -955,62 +1011,131 @@ void Game_Map::Update(bool is_preupdate) {
 			}
 		}
 	}
+}
+
+
+bool Game_Map::UpdateCommonEvents(MapUpdateAsyncContext& actx) {
+	int resume_ce = actx.GetParallelCommonEvent();
 
 	for (Game_CommonEvent& ev : common_events) {
-		ev.Update();
-	}
+		bool resume_async = false;
+		if (resume_ce != 0) {
+			// If resuming, skip all until the event to resume from ..
+			if (ev.GetIndex() != resume_ce) {
+				continue;
+			} else {
+				resume_ce = 0;
+				resume_async = true;
+			}
+		}
 
-	for (Game_Event& ev : events) {
-		ev.Update();
-	}
-
-	if (is_preupdate) {
-		return;
-	}
-
-	Main_Data::game_player->Update();
-	UpdatePan();
-
-	for (auto& vehicle: vehicles) {
-		if (vehicle->GetMapId() == location.map_id) {
-			vehicle->Update();
+		auto aop = ev.Update(resume_async);
+		if (aop.IsActive()) {
+			// Suspend due to this event ..
+			actx = MapUpdateAsyncContext::FromCommonEvent(ev.GetIndex(), aop);
+			return false;
 		}
 	}
 
-	Main_Data::game_party->UpdateTimers();
-	Main_Data::game_screen->Update();
+	actx = {};
+	return true;
+}
 
+bool Game_Map::UpdateMapEvents(MapUpdateAsyncContext& actx) {
+	int resume_ev = actx.GetParallelMapEvent();
+
+	for (Game_Event& ev : events) {
+		bool resume_async = false;
+		if (resume_ev != 0) {
+			// If resuming, skip all until the event to resume from ..
+			if (ev.GetId() != resume_ev) {
+				continue;
+			} else {
+				resume_ev = 0;
+				resume_async = true;
+			}
+		}
+
+		auto aop = ev.Update(resume_async);
+		if (aop.IsActive()) {
+			// Suspend due to this event ..
+			actx = MapUpdateAsyncContext::FromMapEvent(ev.GetId(), aop);
+			return false;
+		}
+	}
+
+	actx = {};
+	return true;
+}
+
+bool Game_Map::UpdateForegroundEvents(MapUpdateAsyncContext& actx, Window_Message& message) {
 	auto& interp = GetInterpreter();
 
-	//Do we start with map events or common events?
-	bool do_map_event = !interp.IsRunningMapEvent();
+	// If we resume from async op, we don't clear the loop index.
+	const bool resume_fg = actx.IsForegroundEvent();
 
-	// Run any event still loaded from last frame.
-	interp.Update(true);
+	auto sg = makeScopeGuard([&]() { message.UpdatePostEvents(); });
 
-	bool ran_ev = true;
-	bool ran_ce = true;
-	// Keep going until interpreter needs to run into next frame, ran too many commands, or no events left to run.
-	while (!interp.IsRunning()
-			&& !interp.ReachedLoopLimit()
-			&& (ran_ev || ran_ce)) {
+	// Run any event loaded from last frame.
+	interp.Update(!resume_fg);
+	if (interp.IsAsyncPending()) {
+		// Suspend due to this event ..
+		actx = MapUpdateAsyncContext::FromForegroundEvent(interp.GetAsyncOp());
+		return false;
+	}
+
+	while (!interp.IsRunning() && !interp.ReachedLoopLimit()) {
+		interp.Clear();
+
 		// This logic is probably one big loop in RPG_RT. We have to replicate
 		// it here because once we stop executing from this we should not
 		// clear anymore waiting flags.
 		if (Scene::instance->HasRequestedScene() && interp.GetLoopCount() > 0) {
 			break;
 		}
+		Game_CommonEvent* run_ce = nullptr;
 
-		if (do_map_event) {
-			ran_ev = RunNextForegroundMapEvent(interp);
-		} else {
-			ran_ce = RunNextForegroundCommonEvent(interp);
+		for (auto& ce: common_events) {
+			if (ce.IsWaitingForegroundExecution()) {
+				run_ce = &ce;
+				break;
+			}
 		}
-		do_map_event = !do_map_event;
+		if (run_ce) {
+			interp.Push(run_ce);
+		}
+
+		Game_Event* run_ev = nullptr;
+		for (auto& ev: events) {
+			if (ev.IsWaitingForegroundExecution()) {
+				if (!ev.IsActive()) {
+					ev.ClearWaitingForegroundExecution();
+					continue;
+				}
+				run_ev = &ev;
+				break;
+			}
+		}
+		if (run_ev) {
+			interp.Push(run_ev);
+			run_ev->ClearWaitingForegroundExecution();
+		}
+
+		// If no events to run we're finished.
+		if (!interp.IsRunning()) {
+			break;
+		}
+
+		interp.Update(false);
+		if (interp.IsAsyncPending()) {
+			// Suspend due to this event ..
+			actx = MapUpdateAsyncContext::FromForegroundEvent(interp.GetAsyncOp());
+			return false;
+		}
 	}
 
-	free_interpreters.clear();
-	Parallax::Update();
+	actx = {};
+	return true;
 }
 
 RPG::MapInfo const& Game_Map::GetMapInfo() {
@@ -1194,6 +1319,7 @@ bool Game_Map::PrepareEncounter() {
 	}
 
 	SetupBattle();
+	Game_Temp::battle_random_encounter = true;
 
 	return true;
 }
@@ -1212,33 +1338,6 @@ void Game_Map::SetupBattle() {
 	if (Data::treemap.maps[current_index].background_type == 2) {
 		Game_Temp::battle_background = Data::treemap.maps[current_index].background_name;
 	}
-}
-
-void Game_Map::ShowBattleAnimation(int animation_id, int target_id, bool global) {
-	const RPG::Animation* anim = ReaderUtil::GetElement(Data::animations, animation_id);
-	if (!anim) {
-		Output::Warning("ShowBattleAnimation: Invalid battle animation ID %d", animation_id);
-		return;
-	}
-
-	Main_Data::game_data.screen.battleanim_id = animation_id;
-	Main_Data::game_data.screen.battleanim_target = target_id;
-	Main_Data::game_data.screen.battleanim_global = global;
-
-	Game_Character* chara = Game_Character::GetCharacter(target_id, target_id);
-
-	if (chara) {
-		chara->SetFlashTimeLeft(0); // Any flash always ends
-		if (global) {
-			animation.reset(new BattleAnimationGlobal(*anim));
-		} else {
-			animation.reset(new BattleAnimationChara(*anim, *chara));
-		}
-	}
-}
-
-bool Game_Map::IsBattleAnimationWaiting() {
-	return (bool)animation;
 }
 
 std::vector<short>& Game_Map::GetMapDataDown() {
@@ -1676,8 +1775,12 @@ void Game_Map::Parallax::ScrollRight(int distance) {
 	}
 
 	if (params.scroll_horz) {
-		const auto w = parallax_width * TILE_SIZE * 2;
-		panorama.pan_x = (panorama.pan_x + distance + w) % w;
+		// FIXME: Fixes a crash with ChangeBG commands in events, but not correct.
+		// Real fix TBD
+		if (parallax_width != 0) {
+			const auto w = parallax_width * TILE_SIZE * 2;
+			panorama.pan_x = (panorama.pan_x + distance + w) % w;
+		}
 		return;
 	}
 
@@ -1695,8 +1798,12 @@ void Game_Map::Parallax::ScrollDown(int distance) {
 	}
 
 	if (params.scroll_vert) {
-		const auto h = parallax_height * TILE_SIZE * 2;
-		panorama.pan_y = (panorama.pan_y + distance + h) % h;
+		// FIXME: Fixes a crash with ChangeBG commands in events, but not correct.
+		// Real fix TBD
+		if (parallax_height != 0) {
+			const auto h = parallax_height * TILE_SIZE * 2;
+			panorama.pan_y = (panorama.pan_y + distance + h) % h;
+		}
 		return;
 	}
 
@@ -1720,15 +1827,24 @@ void Game_Map::Parallax::Update() {
 	if (params.scroll_horz
 			&& params.scroll_horz_auto
 			&& params.scroll_horz_speed != 0) {
-		const auto w = parallax_width * TILE_SIZE * 2;
-		panorama.pan_x = (panorama.pan_x + scroll_amt(params.scroll_horz_speed) + w) % w;
+
+		// FIXME: Fixes a crash with ChangeBG commands in events, but not correct.
+		// Real fix TBD
+		if (parallax_width != 0) {
+			const auto w = parallax_width * TILE_SIZE * 2;
+			panorama.pan_x = (panorama.pan_x + scroll_amt(params.scroll_horz_speed) + w) % w;
+		}
 	}
 
 	if (params.scroll_vert
 			&& params.scroll_vert_auto
 			&& params.scroll_vert_speed != 0) {
-		const auto h = parallax_height * TILE_SIZE * 2;
-		panorama.pan_y = (panorama.pan_y + scroll_amt(params.scroll_vert_speed) + h) % h;
+		// FIXME: Fixes a crash with ChangeBG commands in events, but not correct.
+		// Real fix TBD
+		if (parallax_height != 0) {
+			const auto h = parallax_height * TILE_SIZE * 2;
+			panorama.pan_y = (panorama.pan_y + scroll_amt(params.scroll_vert_speed) + h) % h;
+		}
 	}
 }
 

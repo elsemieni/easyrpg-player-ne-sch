@@ -46,12 +46,7 @@ public:
 	/**
 	 * Destructor.
 	 */
-#ifndef EMSCRIPTEN
-	// No idea why but emscripten will complain about a missing destructor when
-	// using virtual here
-	virtual
-#endif
-	~Game_Character();
+	virtual ~Game_Character();
 
 	/** @return the type of character this is */
 	Type GetType() const;
@@ -159,7 +154,7 @@ public:
 	 *
 	 * @return whether event overlap is forbidden.
 	 */
-	virtual bool IsOverlapForbidden() const;
+	bool IsOverlapForbidden() const;
 
 	/**
 	 * Gets character movement speed.
@@ -264,8 +259,9 @@ public:
 	 * Sets sprite name. Usually the name of the graphic file.
 	 *
 	 * @param sprite_name new sprite name
+	 * @param index the index of the new sprite.
 	 */
-	void SetSpriteName(std::string sprite_name);
+	void SetSpriteGraphic(std::string sprite_name, int index);
 
 	/**
 	 * Gets sprite index of character.
@@ -273,13 +269,6 @@ public:
 	 * @return sprite index
 	 */
 	int GetSpriteIndex() const;
-
-	/**
-	 * Sets sprite index of character.
-	 *
-	 * @param index new sprite index
-	 */
-	void SetSpriteIndex(int index);
 
 	/**
 	 * Gets animation frame of character.
@@ -361,14 +350,14 @@ public:
 	 *
 	 * @return through flag
 	 */
-	virtual bool GetThrough() const;
+	bool GetThrough() const;
 
 	/**
 	 * Sets the through flag (walk through everything)
 	 *
 	 * @param through through flag
 	 */
-	virtual void SetThrough(bool through);
+	void SetThrough(bool through);
 
 	/**
 	 * @return stop_count
@@ -417,7 +406,7 @@ public:
 	 *
 	 * @return whether the character is moving.
 	 */
-	virtual bool IsMoving() const;
+	bool IsMoving() const;
 
 	/**
 	 * @return whether the character is jumping.
@@ -768,7 +757,7 @@ public:
 	 *
 	 * @param visible true: visible, false: invisible
 	 */
-	virtual void SetVisible(bool visible);
+	void SetVisible(bool visible);
 
 	/**
 	 * Tests if animation type is any fixed state.
@@ -806,8 +795,6 @@ public:
 	 * @return Bush depth at this character's position
 	 */
 	int GetBushDepth() const;
-
-	void SetGraphic(const std::string& name, int index);
 
 	enum CharsID {
 		CharPlayer		= 10001,
@@ -986,16 +973,13 @@ inline const std::string& Game_Character::GetSpriteName() const {
 	return data()->sprite_name;
 }
 
-inline void Game_Character::SetSpriteName(std::string sprite_name) {
+inline void Game_Character::SetSpriteGraphic(std::string sprite_name, int index) {
 	data()->sprite_name = std::move(sprite_name);
+	data()->sprite_id = index;
 }
 
 inline int Game_Character::GetSpriteIndex() const {
 	return data()->sprite_id;
-}
-
-inline void Game_Character::SetSpriteIndex(int index) {
-	data()->sprite_id = index;
 }
 
 inline int Game_Character::GetAnimFrame() const {
@@ -1174,6 +1158,10 @@ inline bool Game_Character::IsActive() const {
 
 inline bool Game_Character::HasTileSprite() const {
 	return GetSpriteName().empty();
+}
+
+inline void Game_Character::SetVisible(bool visible) {
+	this->visible = visible;
 }
 
 #endif

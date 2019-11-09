@@ -20,7 +20,9 @@
 
 // Headers
 #include "baseui.h"
+#include "meta.h"
 #include <vector>
+#include <memory>
 
 /**
  * Player namespace.
@@ -85,6 +87,16 @@ namespace Player {
 	 * Should be called after an expensive operation.
 	 */
 	void FrameReset();
+
+	/**
+	 * Resets the fps count (both updates and frames per second).
+	 * Should be called after an expensive operation.
+	 * Instead of using DisplayUi->GetTicks uses the start_ticks arg which
+	 * saves a system call.
+	 *
+	 * @param start_ticks time in ticks when this function was called
+	 */
+	void FrameReset(uint32_t start_ticks);
 
 	/**
 	 * Increment the frame counters.
@@ -277,8 +289,11 @@ namespace Player {
 	/** Encoding used */
 	extern std::string encoding;
 
-	/** Backslash recoded */
+	/** Backslash recoded to utf8 string */
 	extern std::string escape_symbol;
+
+	/** Backslash recoded to character */
+	extern uint32_t escape_char;
 
 	/** Currently interpreted engine. */
 	extern int engine;
@@ -291,6 +306,9 @@ namespace Player {
 
 	/** Game title. */
 	extern std::string game_title;
+
+	/** Meta class containing additional external data for this game. */
+	extern std::shared_ptr<Meta> meta;
 
 	/**
 	 * The default speed modifier applied when the speed up button is pressed

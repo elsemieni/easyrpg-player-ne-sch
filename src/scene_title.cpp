@@ -17,6 +17,7 @@
 
 // Headers
 #include <fstream>
+#include <sstream>
 #include <vector>
 #include "scene_title.h"
 #include "audio.h"
@@ -29,9 +30,11 @@
 #include "transition.h"
 #include "input.h"
 #include "main_data.h"
+#include "meta.h"
 #include "output.h"
 #include "player.h"
 #include "scene_battle.h"
+#include "scene_import.h"
 #include "scene_load.h"
 #include "scene_map.h"
 #include "window_command.h"
@@ -42,6 +45,8 @@ Scene_Title::Scene_Title() {
 }
 
 void Scene_Title::Start() {
+	Game_System::ResetSystemGraphic();
+
 	// Skip background image and music if not used
 	if (CheckEnableTitleGraphicAndMusic()) {
 		CreateTitleGraphic();
@@ -51,7 +56,10 @@ void Scene_Title::Start() {
 	CreateCommandWindow();
 }
 
+
 void Scene_Title::Continue(SceneType prev_scene) {
+	Game_System::ResetSystemGraphic();
+
 	if (restart_title_cache) {
 		// Clear the cache when the game returns to the title screen
 		// e.g. by pressing F12, except the Title Load menu
@@ -106,14 +114,14 @@ void Scene_Title::Update() {
 	command_window->Update();
 
 	if (Input::IsTriggered(Input::DECISION)) {
-		switch (command_window->GetIndex()) {
-		case 0: // New Game
+		int index = command_window->GetIndex();
+		if (index == new_game_index) {  // New Game
 			CommandNewGame();
-			break;
-		case 1: // Load Game
+		} else if (index == continue_index) {  // Load Game
 			CommandContinue();
-			break;
-		case 2: // Exit Game
+		} else if (index == import_index) {  // Import (multi-part games)
+			CommandImport();
+		} else if (index == exit_index) {  // Exit Game
 			CommandShutdown();
 		}
 	}
@@ -138,6 +146,14 @@ void Scene_Title::CreateCommandWindow() {
 	std::vector<std::string> options;
 	options.push_back(Data::terms.new_game);
 	options.push_back(Data::terms.load_game);
+
+	// Set "Import" based on metadata
+	if (Player::meta->IsImportEnabled()) {
+		options.push_back(Player::meta->GetExVocabImportSaveTitleText());
+		import_index = 2;
+		exit_index = 3;
+	}
+
 	options.push_back(Data::terms.exit_game);
 
 	command_window.reset(new Window_Command(options));
@@ -214,6 +230,13 @@ void Scene_Title::CommandContinue() {
 
 	restart_title_cache = false;
 	Scene::Push(std::make_shared<Scene_Load>());
+}
+
+void Scene_Title::CommandImport() {
+	Game_System::SePlay(Game_System::GetSystemSE(Game_System::SFX_Decision));
+
+	restart_title_cache = false;
+	Scene::Push(std::make_shared<Scene_Import>());
 }
 
 void Scene_Title::CommandShutdown() {

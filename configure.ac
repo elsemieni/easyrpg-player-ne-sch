@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ([2.69])
-AC_INIT([easyrpg-player],[0.6.0],[https://github.com/EasyRPG/Player/issues],[easyrpg-player],[https://easyrpg.org])
+AC_INIT([easyrpg-player],[0.6.1],[https://github.com/EasyRPG/Player/issues],[easyrpg-player],[https://easyrpg.org])
 
 AC_CONFIG_AUX_DIR([builds/autoconf/aux])
 AM_INIT_AUTOMAKE([1.11.4 foreign subdir-objects tar-ustar -Wall dist-xz])
@@ -116,8 +116,8 @@ AS_IF([test "x$BASHCOMPLETION_DIR" = "x"],[
 AC_SUBST([BASHCOMPLETION_DIR])
 AM_CONDITIONAL([HAVE_BASHCOMPLETION], [test "x$with_bash_completion_dir" != "xno"])
 
-# C++11 is mandatory
-AX_CXX_COMPILE_STDCXX(11, noext)
+# C++14 is mandatory
+AX_CXX_COMPILE_STDCXX(14, noext)
 
 # Checks for header files.
 AC_CHECK_HEADERS([cstdint cstdlib string iostream unistd.h wchar.h])

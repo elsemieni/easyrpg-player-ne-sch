@@ -27,6 +27,9 @@
 #include "rpg_eventcommand.h"
 #include "system.h"
 #include "command_codes.h"
+#include "rpg_saveeventexecstate.h"
+#include "flag_set.h"
+#include "async_op.h"
 
 class Game_Event;
 class Game_CommonEvent;
@@ -41,7 +44,7 @@ namespace RPG {
 class Game_Interpreter
 {
 public:
-	Game_Interpreter(int _depth = 0, bool _main_flag = false);
+	Game_Interpreter(bool _main_flag = false);
 #ifndef EMSCRIPTEN
 	// No idea why but emscripten will complain about a missing destructor when
 	// using virtual here
@@ -54,48 +57,59 @@ public:
 	bool IsRunning() const;
 	int GetLoopCount() const;
 	bool ReachedLoopLimit() const;
-	void Update(bool reset_loop_count=true);
-	bool IsRunningMapEvent() const;
 
-	void Setup(
+	void Update(bool reset_loop_count=true);
+
+	void Push(
 			const std::vector<RPG::EventCommand>& _list,
 			int _event_id,
 			bool started_by_decision_key = false
 	);
-	void Setup(Game_Event* ev);
-	void Setup(Game_CommonEvent* ev, int caller_id);
+	void Push(Game_Event* ev);
+	void Push(Game_CommonEvent* ev);
 
 	void InputButton();
-	void SetupChoices(const std::vector<std::string>& choices);
+	void SetupChoices(const std::vector<std::string>& choices, int indent);
 
 	virtual bool ExecuteCommand();
 
-protected:
-	friend class Game_Interpreter_Map;
 
-	int depth;
+	/**
+	 * Returns a SaveEventExecState needed for the savefile.
+	 *
+	 * @return interpreter commands stored in SaveEventCommands
+	 */
+	RPG::SaveEventExecState GetState() const;
+
+	/** @return the event_id of the current frame */
+	int GetCurrentEventId() const;
+
+	/** @return the event_id used by "ThisEvent" in commands */
+	int GetThisEventId() const;
+
+	/** @return the event_id of the event at the base of the call stack */
+	int GetOriginalEventId() const;
+
+	/** Return true if the interpreter is waiting for an async operation and needs to be resumed */
+	bool IsAsyncPending();
+
+	/** Return true if the interpreter is waiting for an async operation and needs to be resumed */
+	AsyncOp GetAsyncOp() const;
+
+protected:
+	static constexpr int loop_limit = 10000;
+	static constexpr int call_stack_limit = 1000;
+	static constexpr int subcommand_sentinel = 255;
+
+	const RPG::SaveEventExecFrame* GetFrame() const;
+	RPG::SaveEventExecFrame* GetFrame();
+
 	bool main_flag;
 
-	int loop_count;
-	bool wait_messages;
+	int loop_count = 0;
 
-	unsigned int index;
-	int map_id;
-	unsigned int event_id;
-	int wait_count;
-
-	std::unique_ptr<Game_Interpreter> child_interpreter;
 	typedef bool (Game_Interpreter::*ContinuationFunction)(RPG::EventCommand const& com);
 	ContinuationFunction continuation;
-
-	std::vector<RPG::EventCommand> list;
-
-	int button_timer;
-	bool waiting_battle_anim;
-	bool updating;
-	bool clear_child;
-
-	bool triggered_by_decision_key = false;
 
 	/**
 	 * Gets strings for choice selection.
@@ -114,10 +128,18 @@ protected:
 	int OperateValue(int operation, int operand_type, int operand);
 	Game_Character* GetCharacter(int character_id) const;
 
-	bool SkipTo(int code, int code2 = -1, int min_indent = -1, int max_indent = -1, bool otherwise_end = false);
+	/**
+	 * Skips to the next option in a chain of conditional commands.
+	 * Works by skipping until we hit the end or the next command
+	 * with com.indent <= indent.
+	 * The <= protects against broken game code which terminates without
+	 * a proper conditional.
+	 *
+	 * @param codes which codes to check.
+	 * @param indent the indentation level to check
+	 */
+	void SkipToNextConditional(std::initializer_list<int> codes, int indent);
 	void SetContinuation(ContinuationFunction func);
-
-	void CancelMenuCall();
 
 	/**
 	 * Sets up a wait (and closes the message box)
@@ -134,14 +156,23 @@ protected:
 	static int ValueOrVariable(int mode, int val);
 
 	/**
+	 * When current frame finishes executing we pop the stack
+	 */
+	bool OnFinishStackFrame();
+
+	/**
 	 * Triggers a game over when all party members are dead.
 	 */
 	void CheckGameOver();
+
+	bool CommandOptionGeneric(RPG::EventCommand const& com, int option_sub_idx, std::initializer_list<int> next);
 
 	bool CommandShowMessage(RPG::EventCommand const& com);
 	bool CommandMessageOptions(RPG::EventCommand const& com);
 	bool CommandChangeFaceGraphic(RPG::EventCommand const& com);
 	bool CommandShowChoices(RPG::EventCommand const& com);
+	bool CommandShowChoiceOption(RPG::EventCommand const& com);
+	bool CommandShowChoiceEnd(RPG::EventCommand const& com);
 	bool CommandInputNumber(RPG::EventCommand const& com);
 	bool CommandControlSwitches(RPG::EventCommand const& com);
 	bool CommandControlVariables(RPG::EventCommand const& com);
@@ -205,6 +236,8 @@ protected:
 	bool CommandChangeSaveAccess(RPG::EventCommand const& com);
 	bool CommandChangeMainMenuAccess(RPG::EventCommand const& com);
 	bool CommandConditionalBranch(RPG::EventCommand const& com);
+	bool CommandElseBranch(RPG::EventCommand const& com);
+	bool CommandEndBranch(RPG::EventCommand const& com);
 	bool CommandJumpToLabel(RPG::EventCommand const& com);
 	bool CommandBreakLoop(RPG::EventCommand const& com);
 	bool CommandEndLoop(RPG::EventCommand const& com);
@@ -215,38 +248,78 @@ protected:
 	bool CommandChangeBattleCommands(RPG::EventCommand const& com);
 	bool CommandExitGame(RPG::EventCommand const& com);
 	bool CommandToggleFullscreen(RPG::EventCommand const& com);
-	bool CommandEnd();
 
 	virtual bool DefaultContinuation(RPG::EventCommand const& com);
 	virtual bool ContinuationChoices(RPG::EventCommand const& com);
 	virtual bool ContinuationOpenShop(RPG::EventCommand const& com);
 	virtual bool ContinuationShowInnStart(RPG::EventCommand const& com);
-	virtual bool ContinuationShowInnFinish(RPG::EventCommand const& com);
 	virtual bool ContinuationEnemyEncounter(RPG::EventCommand const& com);
 
 	int DecodeInt(std::vector<int32_t>::const_iterator& it);
 	const std::string DecodeString(std::vector<int32_t>::const_iterator& it);
 	RPG::MoveCommand DecodeMove(std::vector<int32_t>::const_iterator& it);
 
-	void OnChangeSystemGraphicReady(FileRequestResult* result);
-
-	struct {
-		int x = 0;
-		int y = 0;
-		// nullptr when common event
-		const RPG::EventPage* page = nullptr;
-	} event_info;
+	void SetSubcommandIndex(int indent, int idx);
+	uint8_t& ReserveSubcommandIndex(int indent);
+	int GetSubcommandIndex(int indent) const;
 
 	FileRequestBinding request_id;
+	enum class Keys {
+		eDown,
+		eLeft,
+		eRight,
+		eUp,
+		eDecision,
+		eCancel,
+		eShift,
+		eNumbers,
+		eOperators
+	};
 
+	struct KeyInputState {
+		FlagSet<Keys> keys = {};
+		int variable = 0;
+		int time_variable = 0;
+		int wait_frames = 0;
+		bool wait = false;
+		bool timed = false;
+
+		int CheckInput() const;
+		void fromSave(const RPG::SaveEventExecState& save);
+		void toSave(RPG::SaveEventExecState& save) const;
+	};
+
+	RPG::SaveEventExecState _state;
+	KeyInputState _keyinput;
+	AsyncOp _async_op = {};
 };
+
+inline const RPG::SaveEventExecFrame* Game_Interpreter::GetFrame() const {
+	return !_state.stack.empty() ? &_state.stack.back() : nullptr;
+}
+
+inline RPG::SaveEventExecFrame* Game_Interpreter::GetFrame() {
+	return !_state.stack.empty() ? &_state.stack.back() : nullptr;
+}
+
+inline int Game_Interpreter::GetCurrentEventId() const {
+	return !_state.stack.empty() ? _state.stack.back().event_id : 0;
+}
+
+inline int Game_Interpreter::GetOriginalEventId() const {
+	return !_state.stack.empty() ? _state.stack.front().event_id : 0;
+}
 
 inline int Game_Interpreter::GetLoopCount() const {
 	return loop_count;
 }
 
-inline bool Game_Interpreter::IsRunningMapEvent() const {
-	return event_id != 0;
+inline bool Game_Interpreter::IsAsyncPending() {
+	return GetAsyncOp().IsActive();
+}
+
+inline AsyncOp Game_Interpreter::GetAsyncOp() const {
+	return _async_op;
 }
 
 #endif
