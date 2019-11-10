@@ -1796,12 +1796,7 @@ bool Game_Interpreter::CommandPlaySound(RPG::EventCommand const& com) { // code 
 
 //netherware fix: practicamente toda la funcion
 bool Game_Interpreter::CommandEndEventProcessing(RPG::EventCommand const& /* com */) { // code 12310
-	auto* frame = GetFrame();
-	assert(frame);
-	const auto& list = frame->commands;
-	auto& index = frame->current_command;
 
-	index = list.size();
 #ifdef STEAMSHIM
 	if ( Game_Variables.IsValid(1901) && Game_Variables.IsValid(1903) ) {
 
@@ -1913,7 +1908,13 @@ bool Game_Interpreter::CommandEndEventProcessing(RPG::EventCommand const& /* com
 		        break;
 			default:
 				//default effect: execute End Event Processing
+				auto* frame = GetFrame();
+				assert(frame);
+				const auto& list = frame->commands;
+				auto& index = frame->current_command;
+
 				index = list.size();
+				return true;
 				break;
 		}
 	}
@@ -1921,6 +1922,11 @@ bool Game_Interpreter::CommandEndEventProcessing(RPG::EventCommand const& /* com
 #else
 	//netherware fix: if it's a standalone build and if I try to call steamshim function, do nothing.
 	if (!Game_Variables.IsValid(1901) || Game_Variables.Get(1901) == 0 ) {
+		auto* frame = GetFrame();
+		assert(frame);
+		const auto& list = frame->commands;
+		auto& index = frame->current_command;
+
 		index = list.size();
 		return true;
 	}

@@ -82,6 +82,8 @@ void Game_System::BgmPlay(RPG::Music const& bgm) {
 
 		Output::Debug("BGM %s has invalid volume %d", bgm.name.c_str(), bgm.volume);
 	}
+	//netherware fix: apply rpg_rt volume mapping
+	data.current_music.volume = Nether_rpgrt_vol_conversion_table[data.current_music.volume];
 
 	if (bgm.fadein < 0 || bgm.fadein > 10000) {
 		data.current_music.fadein = 0;
@@ -171,6 +173,8 @@ void Game_System::SePlay(const RPG::Sound& se, bool stop_sounds) {
 		Output::Debug("SE %s has invalid volume %d", se.name.c_str(), se.volume);
 		volume = 100;
 	}
+	//netherware fix: apply rpg_rt volume mapping
+	volume = Nether_rpgrt_vol_conversion_table[volume];
 
 	if (se.tempo < 50 || se.tempo > 200) {
 		Output::Debug("SE %s has invalid tempo %d", se.name.c_str(), se.tempo);

@@ -70,6 +70,9 @@ namespace Game_System {
 		Transition_Count
 	};
 
+	//Netherware lookup table for volume format conversion
+	const int Nether_rpgrt_vol_conversion_table[101] = {0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 7, 7, 8, 9, 9, 10, 10, 11, 12, 13, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 29, 30, 31, 33, 34, 36, 37, 39, 41, 42, 44, 46, 47, 49, 51, 53, 55, 57, 59, 61, 64, 66, 68, 70, 73, 75, 78, 80, 83, 86, 88, 91, 94, 97, 100};
+
 	class Target {
 	public:
 		int map_id;
