@@ -22,6 +22,7 @@
 #include <vector>
 #include "bitmap.h"
 #include "drawable.h"
+#include "drawable_list.h"
 
 class Transition;
 class MessageOverlay;
@@ -32,14 +33,6 @@ class Scene;
  * Handles screen drawing.
  */
 namespace Graphics {
-	using DrawableList = std::vector<Drawable*>;
-
-	struct State {
-		State() {}
-		DrawableList drawable_list;
-		bool zlist_dirty = false;
-	};
-
 	/**
 	 * Initializes Graphics.
 	 */
@@ -79,12 +72,7 @@ namespace Graphics {
 	 */
 	bool IsTransitionErased();
 
-	void Draw();
-
-	void RegisterDrawable(Drawable* drawable);
-	void RemoveDrawable(Drawable* drawable);
-
-	void UpdateZCallback();
+	void Draw(Bitmap& dst);
 
 	void UpdateSceneCallback();
 

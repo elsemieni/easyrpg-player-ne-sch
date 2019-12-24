@@ -31,8 +31,8 @@ public:
 
 	std::string text;
 	Color color;
-	bool hidden;
-	int repeat_count;
+	bool hidden = false;
+	int repeat_count = 0;
 };
 
 /**
@@ -42,15 +42,8 @@ public:
 class MessageOverlay : public Drawable {
 public:
 	MessageOverlay();
-	~MessageOverlay() override;
 
-	void Draw() override;
-
-	int GetZ() const override;
-
-	DrawableType GetType() const override;
-
-	bool IsGlobal() const override;
+	void Draw(Bitmap& dst) override;
 
 	void Update();
 
@@ -61,27 +54,24 @@ public:
 private:
 	bool IsAnyMessageVisible() const;
 
-	DrawableType type;
-
 	BitmapRef bitmap;
 	BitmapRef black;
 
-	int z;
-	int ox;
-	int oy;
+	int ox = 0;
+	int oy = 0;
 
-	int text_height;
-	int message_max;
+	int text_height = 12;
+	int message_max = 10;
 
 	std::deque<MessageOverlayItem> messages;
 	/** Last message added to the console before linebreak processing */
 	std::string last_message;
 
-	bool dirty;
+	bool dirty = false;
 
-	int counter;
+	int counter = 0;
 
-	bool show_all;
+	bool show_all = false;
 };
 
 #endif

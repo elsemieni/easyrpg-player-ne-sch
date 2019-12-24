@@ -19,21 +19,17 @@
 #include <string>
 #include "data.h"
 #include "rpg_terrain.h"
-#include "baseui.h"
-#include "graphics.h"
 #include "cache.h"
 #include "background.h"
 #include "bitmap.h"
 #include "main_data.h"
 #include "reader_util.h"
 #include "output.h"
+#include "drawable_mgr.h"
 
-Background::Background(const std::string& name) :
-	visible(true), tone_effect(Tone()),
-	bg_hscroll(0), bg_vscroll(0), bg_x(0), bg_y(0),
-	fg_hscroll(0), fg_vscroll(0), fg_x(0), fg_y(0) {
-
-	Graphics::RegisterDrawable(this);
+Background::Background(const std::string& name) : Drawable(TypeBackground, Priority_Background, false)
+{
+	DrawableMgr::Register(this);
 
 	if (!name.empty()) {
 		FileRequestAsync* request = AsyncHandler::RequestFile("Backdrop", name);
@@ -43,12 +39,9 @@ Background::Background(const std::string& name) :
 	}
 }
 
-Background::Background(int terrain_id) :
-	visible(true), tone_effect(Tone()),
-	bg_hscroll(0), bg_vscroll(0), bg_x(0), bg_y(0),
-	fg_hscroll(0), fg_vscroll(0), fg_x(0), fg_y(0) {
-
-	Graphics::RegisterDrawable(this);
+Background::Background(int terrain_id) : Drawable(TypeBackground, Priority_Background, false)
+{
+	DrawableMgr::Register(this);
 
 	const RPG::Terrain* terrain = ReaderUtil::GetElement(Data::terrains, terrain_id);
 
@@ -101,27 +94,6 @@ void Background::OnForegroundFrameGraphicReady(FileRequestResult* result) {
 	fg_bitmap = Cache::Frame(result->file);
 }
 
-Background::~Background() {
-	Graphics::RemoveDrawable(this);
-}
-
-int Background::GetZ() const {
-	return z;
-}
-
-DrawableType Background::GetType() const {
-	return type;
-}
-
-Tone Background::GetTone() const {
-	return tone_effect;
-}
-
-void Background::SetTone(Tone tone) {
-	if (tone_effect != tone) {
-		tone_effect = tone;
-	}
-}
 void Background::Update(int& rate, int& value) {
 	int step =
 		(rate > 0) ? 2 << rate :
@@ -141,23 +113,22 @@ int Background::Scale(int x) {
 	return x > 0 ? x / 64 : -(-x / 64);
 }
 
-void Background::Draw() {
+void Background::Draw(Bitmap& dst) {
 	if (!visible)
 		return;
 
-	BitmapRef dst = DisplayUi->GetDisplaySurface();
-	Rect dst_rect = dst->GetRect();
+	Rect dst_rect = dst.GetRect();
 
 	int shake_pos = Main_Data::game_data.screen.shake_position;
 	dst_rect.x += shake_pos;
 
 	if (bg_bitmap)
-		dst->TiledBlit(-Scale(bg_x), -Scale(bg_y), bg_bitmap->GetRect(), *bg_bitmap, dst_rect, 255);
+		dst.TiledBlit(-Scale(bg_x), -Scale(bg_y), bg_bitmap->GetRect(), *bg_bitmap, dst_rect, 255);
 
 	if (fg_bitmap)
-		dst->TiledBlit(-Scale(fg_x), -Scale(fg_y), fg_bitmap->GetRect(), *fg_bitmap, dst_rect, 255);
+		dst.TiledBlit(-Scale(fg_x), -Scale(fg_y), fg_bitmap->GetRect(), *fg_bitmap, dst_rect, 255);
 
 	if (tone_effect != Tone()) {
-		dst->ToneBlit(0, 0, *dst, dst->GetRect(), tone_effect, Opacity::opaque);
+		dst.ToneBlit(0, 0, dst, dst.GetRect(), tone_effect, Opacity::opaque);
 	}
 }

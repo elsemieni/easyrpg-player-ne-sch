@@ -27,6 +27,8 @@
 #include "game_actor.h"
 #include "game_map.h"
 #include "game_party.h"
+#include "game_switches.h"
+#include "game_variables.h"
 #include "lsd_reader.h"
 #include "output.h"
 #include "player.h"
@@ -110,11 +112,16 @@ void Scene_Save::Action(int index) {
 		}
 	}
 
+	data_copy.system.switches = Main_Data::game_switches->GetData();
+	data_copy.system.variables = Main_Data::game_variables->GetData();
+
 	// RPG_RT saves always have the scene set to this.
 	data_copy.system.scene = RPG::SaveSystem::Scene_file;
-	// RPG_RT always stores SaveMapEvent with map_id == 0.
-	for (auto& sme: data_copy.map_info.events) {
-		sme.map_id = 0;
+	// 2k RPG_RT always stores SaveMapEvent with map_id == 0.
+	if (Player::IsRPG2k()) {
+		for (auto& sme: data_copy.map_info.events) {
+			sme.map_id = 0;
+		}
 	}
 	LSD_Reader::Save(filename, data_copy, Player::encoding);
 

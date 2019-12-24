@@ -23,6 +23,7 @@
 #include "input.h"
 #include "main_data.h"
 #include "transition.h"
+#include "graphics.h"
 
 Scene_Gameover::Scene_Gameover() {
 	type = Scene::Gameover;
@@ -41,7 +42,7 @@ void Scene_Gameover::Start() {
 
 void Scene_Gameover::Update() {
 	if (Input::IsTriggered(Input::DECISION)) {
-		Scene::PopUntil(Scene::Title);
+		Scene::ReturnToTitleScene();
 	}
 }
 

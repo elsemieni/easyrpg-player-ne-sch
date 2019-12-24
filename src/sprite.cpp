@@ -23,59 +23,25 @@
 #include "util_macro.h"
 #include "bitmap.h"
 #include "cache.h"
+#include "drawable_mgr.h"
 
 // Constructor
-Sprite::Sprite() :
-	type(TypeSprite),
-	visible(true),
-	x(0),
-	y(0),
-	z(0),
-	ox(0),
-	oy(0),
-	flash_duration(0),
-	flash_frame(0),
+Sprite::Sprite() : Sprite(TypeSprite) {}
 
-	needs_refresh(true),
-	bitmap_changed(true),
-	src_rect_effect(Rect()),
-
-	opacity_top_effect(255),
-	opacity_bottom_effect(128),
-	bush_effect(0),
-	tone_effect(Tone()),
-	flipx_effect(false),
-	flipy_effect(false),
-	zoom_x_effect(1.0),
-	zoom_y_effect(1.0),
-	angle_effect(0.0),
-	waver_effect_depth(0),
-	waver_effect_phase(0.0),
-	flash_effect(Color(0,0,0,0)),
-	bitmap_effects_src_rect(Rect()),
-
-	current_tone(Tone()),
-	current_flash(Color(0,0,0,0)),
-	current_flip_x(false),
-	current_flip_y(false) {
-
-	Graphics::RegisterDrawable(this);
-}
-
-// Destructor
-Sprite::~Sprite() {
-	Graphics::RemoveDrawable(this);
+Sprite::Sprite(const DrawableType type) : Drawable(type, 0, false)
+{
+	DrawableMgr::Register(this);
 }
 
 // Draw
-void Sprite::Draw() {
+void Sprite::Draw(Bitmap& dst) {
 	if (!visible) return;
 	if (GetWidth() <= 0 || GetHeight() <= 0) return;
 
-	BlitScreen();
+	BlitScreen(dst);
 }
 
-void Sprite::BlitScreen() {
+void Sprite::BlitScreen(Bitmap& dst) {
 	if (!bitmap || (opacity_top_effect <= 0 && opacity_bottom_effect <= 0))
 		return;
 
@@ -93,20 +59,19 @@ void Sprite::BlitScreen() {
 			rect.y %= bitmap_effects->GetHeight();
 		}
 
-		BlitScreenIntern(*draw_bitmap, rect, bush_effect);
+		BlitScreenIntern(dst, *draw_bitmap, rect, bush_effect);
 	}
 }
 
-void Sprite::BlitScreenIntern(Bitmap const& draw_bitmap,
+void Sprite::BlitScreenIntern(Bitmap& dst, Bitmap const& draw_bitmap,
 								Rect const& src_rect, int opacity_split) const {
-	BitmapRef dst = DisplayUi->GetDisplaySurface();
 
 	double zoom_x = zoom_x_effect;
 	double zoom_y = zoom_y_effect;
 
-	dst->EffectsBlit(x, y, ox, oy, draw_bitmap, src_rect,
+	dst.EffectsBlit(x, y, ox, oy, draw_bitmap, src_rect,
 					 Opacity(opacity_top_effect, opacity_bottom_effect, opacity_split),
-					 zoom_x, zoom_y, angle_effect != 0.0 ? angle_effect * 3.14159 / 180 : 0.0,
+					 zoom_x, zoom_y, angle_effect,
 					 waver_effect_depth, waver_effect_phase);
 }
 
@@ -153,14 +118,6 @@ BitmapRef Sprite::Refresh(Rect& rect) {
 	}
 }
 
-int Sprite::GetWidth() const {
-	return src_rect.width;
-}
-
-int Sprite::GetHeight() const {
-	return src_rect.height;
-}
-
 void Sprite::Update() {
 	if (flash_duration != 0) {
 		flash_frame += 1;
@@ -196,10 +153,6 @@ void Sprite::SetFlashEffect(const Color &color) {
 	}
 }
 
-BitmapRef const& Sprite::GetBitmap() const {
-	return bitmap;
-}
-
 void Sprite::SetBitmap(BitmapRef const& nbitmap) {
 	bitmap = nbitmap;
 	if (!bitmap) {
@@ -214,87 +167,11 @@ void Sprite::SetBitmap(BitmapRef const& nbitmap) {
 	bitmap_changed = true;
 }
 
-Rect const& Sprite::GetSrcRect() const {
-	return src_rect;
-}
-
-void Sprite::SetSrcRect(Rect const& nsrc_rect) {
-	src_rect = nsrc_rect;
-}
 void Sprite::SetSpriteRect(Rect const& nsprite_rect) {
 	if (src_rect_effect != nsprite_rect) {
 		src_rect_effect = nsprite_rect;
 		needs_refresh = true;
 	}
-}
-
-bool Sprite::GetVisible() const {
-	return visible;
-}
-void Sprite::SetVisible(bool nvisible) {
-	visible = nvisible;
-}
-
-int Sprite::GetX() const {
-	return x;
-}
-void Sprite::SetX(int nx) {
-	x = nx;
-}
-
-int Sprite::GetY() const {
-	return y;
-}
-void Sprite::SetY(int ny) {
-	y = ny;
-}
-
-int Sprite::GetZ() const {
-	return z;
-}
-void Sprite::SetZ(int nz) {
-	if (z != nz) Graphics::UpdateZCallback();
-	z = nz;
-}
-
-int Sprite::GetOx() const {
-	return ox;
-}
-void Sprite::SetOx(int nox) {
-	ox = nox;
-}
-
-int Sprite::GetOy() const {
-	return oy;
-}
-void Sprite::SetOy(int noy) {
-	oy = noy;
-}
-
-double Sprite::GetZoomX() const {
-	return zoom_x_effect;
-}
-void Sprite::SetZoomX(double zoom_x) {
-	zoom_x_effect = zoom_x;
-}
-
-double Sprite::GetZoomY() const {
-	return zoom_y_effect;
-}
-void Sprite::SetZoomY(double zoom_y) {
-	zoom_y_effect = zoom_y;
-}
-
-double Sprite::GetAngle() const {
-	return angle_effect;
-}
-
-void Sprite::SetAngle(double angle) {
-	angle_effect = angle;
-}
-
-bool Sprite::GetFlipX() const {
-	return flipx_effect;
 }
 
 void Sprite::SetFlipX(bool flipx) {
@@ -304,10 +181,6 @@ void Sprite::SetFlipX(bool flipx) {
 	}
 }
 
-bool Sprite::GetFlipY() const {
-	return flipy_effect;
-}
-
 void Sprite::SetFlipY(bool flipy) {
 	if (flipy_effect != flipy) {
 		flipy_effect = flipy;
@@ -315,19 +188,11 @@ void Sprite::SetFlipY(bool flipy) {
 	}
 }
 
-int Sprite::GetBushDepth() const {
-	return bush_effect;
-}
-
 void Sprite::SetBushDepth(int bush_depth) {
 	if (bush_effect != bush_depth) {
 		bush_effect = bush_depth;
 		needs_refresh = true;
 	}
-}
-
-int Sprite::GetOpacity(int which) const {
-	return which > 0 ? opacity_bottom_effect : opacity_top_effect;
 }
 
 void Sprite::SetOpacity(int opacity_top, int opacity_bottom) {
@@ -343,35 +208,11 @@ void Sprite::SetOpacity(int opacity_top, int opacity_bottom) {
 	}
 }
 
-int Sprite::GetBlendType() const {
-	return blend_type_effect;
-}
-
-void Sprite::SetBlendType(int blend_type) {
-	blend_type_effect = blend_type;
-}
-
-Color Sprite::GetBlendColor() const {
-	return blend_color_effect;
-}
-
-void Sprite::SetBlendColor(Color blend_color) {
-	blend_color_effect = blend_color;
-}
-
-Tone Sprite::GetTone() const {
-	return tone_effect;
-}
-
 void Sprite::SetTone(Tone tone) {
 	if (tone_effect != tone) {
 		tone_effect = tone;
 		needs_refresh = true;
 	}
-}
-
-int Sprite::GetWaverDepth() const {
-	return waver_effect_depth;
 }
 
 void Sprite::SetWaverDepth(int depth) {
@@ -381,10 +222,6 @@ void Sprite::SetWaverDepth(int depth) {
 	}
 }
 
-double Sprite::GetWaverPhase() const {
-	return waver_effect_phase;
-}
-
 void Sprite::SetWaverPhase(double phase) {
 	if (waver_effect_phase != phase) {
 		waver_effect_phase = phase;
@@ -392,6 +229,3 @@ void Sprite::SetWaverPhase(double phase) {
 	}
 }
 
-DrawableType Sprite::GetType() const {
-	return type;
-}

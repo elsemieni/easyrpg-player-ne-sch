@@ -121,7 +121,7 @@ void Game_Interpreter::Push(
 	frame.event_id = event_id;
 
 	if (_state.stack.empty() && main_flag) {
-		Game_Message::SetFaceName("");
+		Game_Message::ClearFace();
 		Main_Data::game_player->SetMenuCalling(false);
 		Main_Data::game_player->SetEncounterCalling(false);
 	}
@@ -339,7 +339,7 @@ void Game_Interpreter::Update(bool reset_loop_count) {
 			if (Main_Data::game_player->InVehicle() && Main_Data::game_player->GetVehicle()->IsAscendingOrDescending())
 				break;
 
-			if (Game_Message::message_waiting)
+			if (Game_Message::IsMessagePending())
 				break;
 		} else {
 			if ((Game_Message::IsMessageActive()) && _state.show_message) {
@@ -370,7 +370,7 @@ void Game_Interpreter::Update(bool reset_loop_count) {
 
 		if (_keyinput.wait) {
 			const int key = _keyinput.CheckInput();
-			Game_Variables.Set(_keyinput.variable, key);
+			Main_Data::game_variables->Set(_keyinput.variable, key);
 			Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
 			if (key == 0) {
 				++_keyinput.wait_frames;
@@ -378,7 +378,7 @@ void Game_Interpreter::Update(bool reset_loop_count) {
 			}
 			if (_keyinput.timed) {
 				// 10 per second
-				Game_Variables.Set(_keyinput.time_variable,
+				Main_Data::game_variables->Set(_keyinput.time_variable,
 						(_keyinput.wait_frames * 10) / Graphics::GetDefaultFps());
 			}
 			_keyinput.wait = false;
@@ -751,7 +751,7 @@ bool Game_Interpreter::OnFinishStackFrame() {
 	const bool is_base_frame = _state.stack.size() == 1;
 
 	if (main_flag && is_base_frame) {
-		Game_Message::SetFaceName("");
+		Game_Message::ClearFace();
 	}
 
 	int event_id = frame->event_id;
@@ -830,22 +830,17 @@ bool Game_Interpreter::CommandShowMessage(RPG::EventCommand const& com) { // cod
 		return false;
 	}
 
-	unsigned int line_count = 0;
-
-	Game_Message::message_waiting = true;
-	_state.show_message = true;
+	auto pm = PendingMessage();
 
 	// Set first line
-	Game_Message::texts.push_back(com.string);
-	line_count++;
+	pm.PushLine(com.string);
 
 	++index;
 
 	// Check for continued lines via ShowMessage_2
 	while (index < list.size() && list[index].code == Cmd::ShowMessage_2) {
 		// Add second (another) line
-		line_count++;
-		Game_Message::texts.push_back(list[index].string);
+		pm.PushLine(list[index].string);
 		++index;
 	}
 
@@ -855,23 +850,25 @@ bool Game_Interpreter::CommandShowMessage(RPG::EventCommand const& com) { // cod
 		if (list[index].code == Cmd::ShowChoice) {
 			std::vector<std::string> s_choices = GetChoices();
 			// If choices fit on screen
-			if (s_choices.size() <= (4 - line_count)) {
-				Game_Message::choice_start = line_count;
-				Game_Message::choice_cancel_type = list[index].parameters[0];
-				SetupChoices(s_choices, com.indent);
+			if (s_choices.size() <= (4 - pm.NumLines())) {
+				pm.SetChoiceCancelType(list[index].parameters[0]);
+				SetupChoices(s_choices, com.indent, pm);
 				++index;
 			}
 		} else if (list[index].code == Cmd::InputNumber) {
 			// If next event command is input number
 			// If input number fits on screen
-			if (line_count < 4) {
-				Game_Message::num_input_start = line_count;
-				Game_Message::num_input_digits_max = list[index].parameters[0];
-				Game_Message::num_input_variable_id = list[index].parameters[1];
+			if (pm.NumLines() < 4) {
+				int digits = list[index].parameters[0];
+				int variable_id = list[index].parameters[1];
+				pm.PushNumInput(variable_id, digits);
 				++index;
 			}
 		}
 	}
+
+	Game_Message::SetPendingMessage(std::move(pm));
+	_state.show_message = true;
 
 	return true;
 }
@@ -900,34 +897,19 @@ bool Game_Interpreter::CommandChangeFaceGraphic(RPG::EventCommand const& com) { 
 	return true;
 }
 
-void Game_Interpreter::SetupChoices(const std::vector<std::string>& choices, int indent) {
-	Game_Message::choice_start = Game_Message::texts.size();
-	Game_Message::choice_reset_color = false;
-	Game_Message::choice_max = choices.size();
-	Game_Message::choice_disabled.reset();
-
+void Game_Interpreter::SetupChoices(const std::vector<std::string>& choices, int indent, PendingMessage& pm) {
 	// Set choices to message text
-	unsigned int i;
-	for (i = 0; i < 4 && i < choices.size(); i++) {
-		Game_Message::texts.push_back(choices[i]);
+	pm.SetChoiceResetColors(false);
+	for (int i = 0; i < 4 && i < choices.size(); i++) {
+		pm.PushChoice(choices[i]);
 	}
 
-	SetContinuation(&Game_Interpreter::ContinuationChoices);
+	pm.SetChoiceContinuation([this, indent](int choice_result) {
+		SetSubcommandIndex(indent, choice_result);
+	});
 
 	// save game compatibility with RPG_RT
 	ReserveSubcommandIndex(indent);
-}
-
-bool Game_Interpreter::ContinuationChoices(RPG::EventCommand const& com) {
-	auto* frame = GetFrame();
-	assert(frame);
-	auto& index = frame->current_command;
-
-	SetSubcommandIndex(com.indent, Game_Message::choice_result);
-
-	continuation = nullptr;
-
-	return true;
 }
 
 bool Game_Interpreter::CommandShowChoices(RPG::EventCommand const& com) { // code 10140
@@ -939,13 +921,15 @@ bool Game_Interpreter::CommandShowChoices(RPG::EventCommand const& com) { // cod
 		return false;
 	}
 
-	Game_Message::message_waiting = true;
-	_state.show_message = true;
+	auto pm = PendingMessage();
 
 	// Choices setup
 	std::vector<std::string> choices = GetChoices();
-	Game_Message::choice_cancel_type = com.parameters[0];
-	SetupChoices(choices, com.indent);
+	pm.SetChoiceCancelType(com.parameters[0]);
+	SetupChoices(choices, com.indent, pm);
+
+	Game_Message::SetPendingMessage(std::move(pm));
+	_state.show_message = true;
 
 	++index;
 	return false;
@@ -967,12 +951,15 @@ bool Game_Interpreter::CommandInputNumber(RPG::EventCommand const& com) { // cod
 		return false;
 	}
 
-	Game_Message::message_waiting = true;
-	_state.show_message = true;
+	auto pm = PendingMessage();
 
-	Game_Message::num_input_start = 0;
-	Game_Message::num_input_variable_id = com.parameters[1];
-	Game_Message::num_input_digits_max = com.parameters[0];
+	int variable_id = com.parameters[1];
+	int digits = com.parameters[0];
+
+	pm.PushNumInput(variable_id, digits);
+
+	Game_Message::SetPendingMessage(std::move(pm));
+	_state.show_message = true;
 
 	// Continue
 	return true;
@@ -983,14 +970,21 @@ bool Game_Interpreter::CommandControlSwitches(RPG::EventCommand const& com) { //
 		// Param0: 0: Single, 1: Range, 2: Indirect
 		// For Range set end to param 2, otherwise to start, this way the loop runs exactly once
 
-		int start = com.parameters[0] == 2 ? Game_Variables.Get(com.parameters[1]) : com.parameters[1];
+		int start = com.parameters[0] == 2 ? Main_Data::game_variables->Get(com.parameters[1]) : com.parameters[1];
 		int end = com.parameters[0] == 1 ? com.parameters[2] : start;
+		int val = com.parameters[3];
 
-		for (int i = start; i <= end; ++i) {
-			if (com.parameters[3] != 2) {
-				Game_Switches.Set(i, com.parameters[3] == 0);
+		if (start == end) {
+			if (val < 2) {
+				Main_Data::game_switches->Set(start, val == 0);
 			} else {
-				Game_Switches.Flip(i);
+				Main_Data::game_switches->Flip(start);
+			}
+		} else {
+			if (val < 2) {
+				Main_Data::game_switches->SetRange(start, end, val == 0);
+			} else {
+				Main_Data::game_switches->FlipRange(start, end);
 			}
 		}
 
@@ -1013,11 +1007,11 @@ bool Game_Interpreter::CommandControlVariables(RPG::EventCommand const& com) { /
 			break;
 		case 1:
 			// Var A ops B
-			value = Game_Variables.Get(com.parameters[5]);
+			value = Main_Data::game_variables->Get(com.parameters[5]);
 			break;
 		case 2:
 			// Number of var A ops B
-			value = Game_Variables.Get(Game_Variables.Get(com.parameters[5]));
+			value = Main_Data::game_variables->Get(Main_Data::game_variables->Get(com.parameters[5]));
 			break;
 		case 3:
 			// Random between range
@@ -1237,40 +1231,50 @@ bool Game_Interpreter::CommandControlVariables(RPG::EventCommand const& com) { /
 		// Param0: 0: Single, 1: Range, 2: Indirect
 		// For Range set end to param 2, otherwise to start, this way the loop runs exactly once
 
-		int start = com.parameters[0] == 2 ? Game_Variables.Get(com.parameters[1]) : com.parameters[1];
+		int start = com.parameters[0] == 2 ? Main_Data::game_variables->Get(com.parameters[1]) : com.parameters[1];
 		int end = com.parameters[0] == 1 ? com.parameters[2] : start;
 
-		for (i = start; i <= end; ++i) {
+		if (start == end) {
 			switch (com.parameters[3]) {
 				case 0:
-					// Assignement
-					Game_Variables.Set(i, value);
+					Main_Data::game_variables->Set(start, value);
 					break;
 				case 1:
-					// Addition
-					Game_Variables.Set(i, Game_Variables.Get(i) + value);
+					Main_Data::game_variables->Add(start, value);
 					break;
 				case 2:
-					// Subtraction
-					Game_Variables.Set(i, Game_Variables.Get(i) - value);
+					Main_Data::game_variables->Sub(start, value);
 					break;
 				case 3:
-					// Multiplication
-					Game_Variables.Set(i, Game_Variables.Get(i) * value);
+					Main_Data::game_variables->Mult(start, value);
 					break;
 				case 4:
-					// Division
-					if (value != 0) {
-						Game_Variables.Set(i, Game_Variables.Get(i) / value);
-					}
+					Main_Data::game_variables->Div(start, value);
 					break;
 				case 5:
-					// Module
-					if (value != 0) {
-						Game_Variables.Set(i, Game_Variables.Get(i) % value);
-					} else {
-						Game_Variables.Set(i, 0);
-					}
+					Main_Data::game_variables->Mod(start, value);
+					break;
+			}
+		} else {
+			switch (com.parameters[3]) {
+				case 0:
+					Main_Data::game_variables->SetRange(start, end, value);
+					break;
+				case 1:
+					Main_Data::game_variables->AddRange(start, end, value);
+					break;
+				case 2:
+					Main_Data::game_variables->SubRange(start, end, value);
+					break;
+				case 3:
+					Main_Data::game_variables->MultRange(start, end, value);
+					break;
+				case 4:
+					Main_Data::game_variables->DivRange(start, end, value);
+					break;
+				case 5:
+					Main_Data::game_variables->ModRange(start, end, value);
+					break;
 			}
 		}
 
@@ -1286,7 +1290,7 @@ int Game_Interpreter::OperateValue(int operation, int operand_type, int operand)
 	if (operand_type == 0) {
 		value = operand;
 	} else {
-		value = Game_Variables.Get(operand);
+		value = Main_Data::game_variables->Get(operand);
 	}
 
 	// Reverse sign of value if operation is substract
@@ -1319,9 +1323,9 @@ std::vector<Game_Actor*> Game_Interpreter::GetActors(int mode, int id) {
 		break;
 	case 2:
 		// Var hero
-		actor = Game_Actors::GetActor(Game_Variables.Get(id));
+		actor = Game_Actors::GetActor(Main_Data::game_variables->Get(id));
 		if (!actor) {
-			Output::Warning("Invalid actor ID %d", Game_Variables.Get(id));
+			Output::Warning("Invalid actor ID %d", Main_Data::game_variables->Get(id));
 			return actors;
 		}
 
@@ -1417,7 +1421,7 @@ bool Game_Interpreter::CommandChangeItems(RPG::EventCommand const& com) { // Cod
 	} else {
 		// Item by variable
 		Main_Data::game_party->AddItem(
-			Game_Variables.Get(com.parameters[2]),
+			Main_Data::game_variables->Get(com.parameters[2]),
 			value
 		);
 	}
@@ -1433,7 +1437,7 @@ bool Game_Interpreter::CommandChangePartyMember(RPG::EventCommand const& com) { 
 	if (com.parameters[1] == 0) {
 		id = com.parameters[2];
 	} else {
-		id = Game_Variables.Get(com.parameters[2]);
+		id = Main_Data::game_variables->Get(com.parameters[2]);
 	}
 
 	actor = Game_Actors::GetActor(id);
@@ -1494,7 +1498,7 @@ int Game_Interpreter::ValueOrVariable(int mode, int val) {
 		case 0:
 			return val;
 		case 1:
-			return Game_Variables.Get(val);
+			return Main_Data::game_variables->Get(val);
 		default:
 			return -1;
 	}
@@ -1722,7 +1726,7 @@ bool Game_Interpreter::CommandSimulatedAttack(RPG::EventCommand const& com) { //
 		actor->ChangeHp(-result);
 
 		if (com.parameters[6] != 0) {
-			Game_Variables.Set(com.parameters[7], result);
+			Main_Data::game_variables->Set(com.parameters[7], result);
 			Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
 		}
 	}
@@ -2099,9 +2103,9 @@ bool Game_Interpreter::CommandMemorizeLocation(RPG::EventCommand const& com) { /
 	int var_map_id = com.parameters[0];
 	int var_x = com.parameters[1];
 	int var_y = com.parameters[2];
-	Game_Variables.Set(var_map_id, Game_Map::GetMapId());
-	Game_Variables.Set(var_x, player->GetX());
-	Game_Variables.Set(var_y, player->GetY());
+	Main_Data::game_variables->Set(var_map_id, Game_Map::GetMapId());
+	Main_Data::game_variables->Set(var_x, player->GetX());
+	Main_Data::game_variables->Set(var_y, player->GetY());
 	Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
 	return true;
 }
@@ -2216,7 +2220,7 @@ bool Game_Interpreter::CommandStoreTerrainID(RPG::EventCommand const& com) { // 
 	int x = ValueOrVariable(com.parameters[0], com.parameters[1]);
 	int y = ValueOrVariable(com.parameters[0], com.parameters[2]);
 	int var_id = com.parameters[3];
-	Game_Variables.Set(var_id, Game_Map::GetTerrainTag(x, y));
+	Main_Data::game_variables->Set(var_id, Game_Map::GetTerrainTag(x, y));
 	Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
 	return true;
 }
@@ -2226,7 +2230,7 @@ bool Game_Interpreter::CommandStoreEventID(RPG::EventCommand const& com) { // co
 	int y = ValueOrVariable(com.parameters[0], com.parameters[2]);
 	int var_id = com.parameters[3];
 	auto* ev = Game_Map::GetEventAt(x, y, false);
-	Game_Variables.Set(var_id, ev ? ev->GetId() : 0);
+	Main_Data::game_variables->Set(var_id, ev ? ev->GetId() : 0);
 	Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
 	return true;
 }
@@ -2250,10 +2254,10 @@ bool Game_Interpreter::CommandEraseScreen(RPG::EventCommand const& com) { // cod
 		tt = Transition::TransitionRandomBlocks;
 		break;
 	case 2:
-		tt = Transition::TransitionRandomBlocksUp;
+		tt = Transition::TransitionRandomBlocksDown;
 		break;
 	case 3:
-		tt = Transition::TransitionRandomBlocksDown;
+		tt = Transition::TransitionRandomBlocksUp;
 		break;
 	case 4:
 		tt = Transition::TransitionBlindClose;
@@ -2332,10 +2336,10 @@ bool Game_Interpreter::CommandShowScreen(RPG::EventCommand const& com) { // code
 		tt = Transition::TransitionRandomBlocks;
 		break;
 	case 2:
-		tt = Transition::TransitionRandomBlocksUp;
+		tt = Transition::TransitionRandomBlocksDown;
 		break;
 	case 3:
-		tt = Transition::TransitionRandomBlocksDown;
+		tt = Transition::TransitionRandomBlocksUp;
 		break;
 	case 4:
 		tt = Transition::TransitionBlindOpen;
@@ -2490,9 +2494,9 @@ namespace PicPointerPatch {
 		if (pic_id > 10000) {
 			int new_id;
 			if (pic_id > 50000) {
-				new_id = Game_Variables.Get(pic_id - 50000);
+				new_id = Main_Data::game_variables->Get(pic_id - 50000);
 			} else {
-				new_id = Game_Variables.Get(pic_id - 10000);
+				new_id = Main_Data::game_variables->Get(pic_id - 10000);
 			}
 
 			if (new_id > 0) {
@@ -2504,19 +2508,19 @@ namespace PicPointerPatch {
 
 	static void AdjustParams(Game_Picture::Params& params) {
 		if (params.magnify > 10000) {
-			int new_magnify = Game_Variables.Get(params.magnify - 10000);
+			int new_magnify = Main_Data::game_variables->Get(params.magnify - 10000);
 			Output::Debug("PicPointer: Zoom %d replaced with %d", params.magnify, new_magnify);
 			params.magnify = new_magnify;
 		}
 
 		if (params.top_trans > 10000) {
-			int new_top_trans = Game_Variables.Get(params.top_trans - 10000);
+			int new_top_trans = Main_Data::game_variables->Get(params.top_trans - 10000);
 			Output::Debug("PicPointer: Top transparency %d replaced with %d", params.top_trans, new_top_trans);
 			params.top_trans = new_top_trans;
 		}
 
 		if (params.bottom_trans > 10000) {
-			int new_bottom_trans = Game_Variables.Get(params.bottom_trans - 10000);
+			int new_bottom_trans = Main_Data::game_variables->Get(params.bottom_trans - 10000);
 			Output::Debug("PicPointer: Bottom transparency %d replaced with %d", params.bottom_trans, new_bottom_trans);
 			params.bottom_trans = new_bottom_trans;
 		}
@@ -2552,7 +2556,7 @@ namespace PicPointerPatch {
 		// Adjust name
 		if (pic_id >= 50000) {
 			// Name substitution is pic_id + 1
-			int pic_num = Game_Variables.Get(pic_id - 50000 + 1);
+			int pic_num = Main_Data::game_variables->Get(pic_id - 50000 + 1);
 
 			if (pic_num >= 0) {
 				params.name = ReplaceName(params.name, pic_num, 4);
@@ -2568,7 +2572,7 @@ namespace PicPointerPatch {
 		AdjustParams(params);
 
 		if (params.duration > 10000) {
-			int new_duration = Game_Variables.Get(params.duration - 10000);
+			int new_duration = Main_Data::game_variables->Get(params.duration - 10000);
 			Output::Debug("PicPointer: Move duration %d replaced with %d", params.duration, new_duration);
 			params.duration = new_duration;
 		}
@@ -2582,6 +2586,11 @@ bool Game_Interpreter::CommandShowPicture(RPG::EventCommand const& com) { // cod
 		return true;
 	}
 
+	// Older versions of RPG_RT block pictures when message active.
+	if (!Player::IsEnglish() && Game_Message::IsMessageActive()) {
+		return false;
+	}
+
 	int pic_id = com.parameters[0];
 
 	Game_Picture::ShowParams params = {};
@@ -2590,7 +2599,7 @@ bool Game_Interpreter::CommandShowPicture(RPG::EventCommand const& com) { // cod
 	params.position_y = ValueOrVariable(com.parameters[1], com.parameters[3]);
 	params.fixed_to_map = com.parameters[4] > 0;
 	params.magnify = com.parameters[5];
-	params.transparency = com.parameters[7] > 0;
+	params.use_transparent_color = com.parameters[7] > 0;
 	params.top_trans = com.parameters[6];
 	params.red = com.parameters[8];
 	params.green = com.parameters[9];
@@ -2601,40 +2610,40 @@ bool Game_Interpreter::CommandShowPicture(RPG::EventCommand const& com) { // cod
 
 	size_t param_size = com.parameters.size();
 
-	if (Player::IsRPG2k() || Player::IsRPG2k3E()) {
-		if (param_size > 16) {
-			// Handling of RPG2k3 1.12 chunks
-			pic_id = ValueOrVariable(com.parameters[17], pic_id);
-			if (com.parameters[19] != 0) {
-				int var = 0;
-				if (Game_Variables.IsValid(com.parameters[19])) {
-					var = Game_Variables.Get(com.parameters[19]);
-				}
-				params.name = PicPointerPatch::ReplaceName(params.name, var, com.parameters[18]);
-			}
-			params.magnify = ValueOrVariable(com.parameters[20], params.magnify);
-			params.top_trans = ValueOrVariable(com.parameters[21], params.top_trans);
-			params.spritesheet_cols = com.parameters[22];
-			params.spritesheet_rows = com.parameters[23];
+	if (param_size > 14) {
+		// RPG2k3 sets this chunk. Versions < 1.12 let you specify separate top and bottom
+		// transparency. >= 1.12 Editor only let you set one transparency field but it affects
+		// both chunks here.
+		params.bottom_trans = com.parameters[14];
+	}
 
-			// Animate and index selection are exclusive
-			if (com.parameters[24] == 2) {
-				params.spritesheet_speed = com.parameters[25];
-			} else {
-				params.spritesheet_frame = ValueOrVariable(com.parameters[24], com.parameters[25]);
+	if (param_size > 16) {
+		// Handling of RPG2k3 1.12 chunks
+		pic_id = ValueOrVariable(com.parameters[17], pic_id);
+		if (com.parameters[19] != 0) {
+			int var = 0;
+			if (Main_Data::game_variables->IsValid(com.parameters[19])) {
+				var = Main_Data::game_variables->Get(com.parameters[19]);
 			}
+			params.name = PicPointerPatch::ReplaceName(params.name, var, com.parameters[18]);
+		}
+		params.magnify = ValueOrVariable(com.parameters[20], params.magnify);
+		params.top_trans = ValueOrVariable(com.parameters[21], params.top_trans);
+		params.spritesheet_cols = com.parameters[22];
+		params.spritesheet_rows = com.parameters[23];
 
-			params.spritesheet_loop = !com.parameters[26];
-			params.map_layer = com.parameters[27];
-			params.battle_layer = com.parameters[28];
-			params.flags = com.parameters[29];
+		// Animate and index selection are exclusive
+		if (com.parameters[24] == 2) {
+			params.spritesheet_speed = com.parameters[25];
+		} else {
+			// Picture data / LSD data frame number is 0 based, while event parameter counts from 1.
+			params.spritesheet_frame = ValueOrVariable(com.parameters[24], com.parameters[25]) - 1;
 		}
 
-		// RPG2k and RPG2k3 1.10 do not support this option
-		params.bottom_trans = params.top_trans;
-	} else {
-		// Corner case when 2k maps are used in 2k3 (pre-1.10) and don't contain this chunk
-		params.bottom_trans = param_size > 14 ? com.parameters[14] : params.top_trans;
+		params.spritesheet_play_once = com.parameters[26];
+		params.map_layer = com.parameters[27];
+		params.battle_layer = com.parameters[28];
+		params.flags = com.parameters[29];
 	}
 
 	PicPointerPatch::AdjustShowParams(pic_id, params);
@@ -2654,6 +2663,11 @@ bool Game_Interpreter::CommandMovePicture(RPG::EventCommand const& com) { // cod
 	if (Game_Temp::battle_running) {
 		Output::Warning("MovePicture: Not supported in battle");
 		return true;
+	}
+
+	// Older versions of RPG_RT block pictures when message active.
+	if (!Player::IsEnglish() && Game_Message::IsMessageActive()) {
+		return false;
 	}
 
 	int pic_id = com.parameters[0];
@@ -2714,6 +2728,11 @@ bool Game_Interpreter::CommandErasePicture(RPG::EventCommand const& com) { // co
 	if (Game_Temp::battle_running) {
 		Output::Warning("ErasePicture: Not supported in battle");
 		return true;
+	}
+
+	// Older versions of RPG_RT block pictures when message active.
+	if (!Player::IsEnglish() && Game_Message::IsMessageActive()) {
+		return false;
 	}
 
 	int pic_id = com.parameters[0];
@@ -2848,7 +2867,7 @@ bool Game_Interpreter::CommandKeyInputProc(RPG::EventCommand const& com) { // co
 
 	if (wait) {
 		// While waiting the variable is reset to 0 each frame.
-		Game_Variables.Set(var_id, 0);
+		Main_Data::game_variables->Set(var_id, 0);
 		Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
 	}
 
@@ -2893,16 +2912,16 @@ bool Game_Interpreter::CommandKeyInputProc(RPG::EventCommand const& com) { // co
 		_keyinput.keys[Keys::eUp] = param_size > 13 ? com.parameters[13] != 0 : false;
 	}
 
-	// Wait until key pressed, but skip the first frame so that
-	// it ignores keys that were pressed before this command started.
-	// FIXME: Is this behavior correct?
 	if (_keyinput.wait) {
-		++index;
-		return false;
+		// RPG_RT will reset all trigger key states when a waiting key input proc command is executed,
+		// which means we always wait at least 1 frame to continue. Keys which are held down are not reset.
+		// This also prevents player actions for this frame such as summoning the menu or triggering events.
+		Input::ResetTriggerKeys();
+		return true;
 	}
 
 	int key = _keyinput.CheckInput();
-	Game_Variables.Set(_keyinput.variable, key);
+	Main_Data::game_variables->Set(_keyinput.variable, key);
 	Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
 
 	return true;
@@ -3025,15 +3044,15 @@ bool Game_Interpreter::CommandConditionalBranch(RPG::EventCommand const& com) { 
 	switch (com.parameters[0]) {
 	case 0:
 		// Switch
-		result = Game_Switches.Get(com.parameters[1]) == (com.parameters[2] == 0);
+		result = Main_Data::game_switches->Get(com.parameters[1]) == (com.parameters[2] == 0);
 		break;
 	case 1:
 		// Variable
-		value1 = Game_Variables.Get(com.parameters[1]);
+		value1 = Main_Data::game_variables->Get(com.parameters[1]);
 		if (com.parameters[2] == 0) {
 			value2 = com.parameters[3];
 		} else {
-			value2 = Game_Variables.Get(com.parameters[3]);
+			value2 = Main_Data::game_variables->Get(com.parameters[3]);
 		}
 		switch (com.parameters[4]) {
 		case 0:
@@ -3352,8 +3371,8 @@ bool Game_Interpreter::CommandCallEvent(RPG::EventCommand const& com) { // code 
 		event_page = com.parameters[2];
 		break;
 	case 2: // Indirect
-		evt_id = Game_Variables.Get(com.parameters[1]);
-		event_page = Game_Variables.Get(com.parameters[2]);
+		evt_id = Main_Data::game_variables->Get(com.parameters[1]);
+		event_page = Main_Data::game_variables->Get(com.parameters[2]);
 		break;
 	default:
 		return false;
@@ -3397,6 +3416,8 @@ bool Game_Interpreter::CommandChangeClass(RPG::EventCommand const& com) { // cod
 		Output::Warning("ChangeClass: Can't change class. Class %d is invalid", class_id);
 		return true;
 	}
+
+	auto pm = PendingMessage();
 
 	for (const auto& actor : GetActors(com.parameters[0], com.parameters[1])) {
 		int actor_id = actor->GetId();
@@ -3478,7 +3499,7 @@ bool Game_Interpreter::CommandChangeClass(RPG::EventCommand const& com) { // cod
 				ss << particle << Data::terms.level << " ";
 				ss << level << space << Data::terms.level_up;
 			}
-			Game_Message::texts.push_back(ss.str());
+			pm.PushLine(ss.str());
 			level_up = true;
 		}
 
@@ -3495,7 +3516,7 @@ bool Game_Interpreter::CommandChangeClass(RPG::EventCommand const& com) { // cod
 						std::stringstream ss;
 						ss << Data::skills[learn.skill_id - 1].name;
 						ss << (Player::IsRPG2k3E() ? " " : "") << Data::terms.skill_learned;
-						Game_Message::texts.push_back(ss.str());
+						pm.PushLine(ss.str());
 						level_up = true;
 					}
 				}
@@ -3509,7 +3530,7 @@ bool Game_Interpreter::CommandChangeClass(RPG::EventCommand const& com) { // cod
 						std::stringstream ss;
 						ss << Data::skills[learn.skill_id - 1].name;
 						ss << (Player::IsRPG2k3E() ? " " : "") << Data::terms.skill_learned;
-						Game_Message::texts.push_back(ss.str());
+						pm.PushLine(ss.str());
 						level_up = true;
 					}
 				}
@@ -3517,9 +3538,12 @@ bool Game_Interpreter::CommandChangeClass(RPG::EventCommand const& com) { // cod
 		}
 
 		if (level_up) {
-			Game_Message::texts.back().append("\f");
-			Game_Message::message_waiting = true;
+			pm.PushPageEnd();
 		}
+	}
+
+	if (pm.NumLines() > 0) {
+		Game_Message::SetPendingMessage(std::move(pm));
 	}
 
 	return true;
@@ -3565,6 +3589,5 @@ bool Game_Interpreter::DefaultContinuation(RPG::EventCommand const& /* com */) {
 // Dummy Continuations
 
 bool Game_Interpreter::ContinuationOpenShop(RPG::EventCommand const& /* com */) { return true; }
-bool Game_Interpreter::ContinuationShowInnStart(RPG::EventCommand const& /* com */) { return true; }
 bool Game_Interpreter::ContinuationEnemyEncounter(RPG::EventCommand const& /* com */) { return true; }
 

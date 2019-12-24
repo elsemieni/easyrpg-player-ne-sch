@@ -65,6 +65,7 @@ namespace {
 void Game_Battle::Init() {
 	interpreter.reset(new Game_Interpreter_Battle());
 	spriteset.reset(new Spriteset_Battle());
+	spriteset->Update();
 	animation.reset();
 
 	Game_Temp::battle_running = true;
@@ -315,13 +316,13 @@ bool Game_Battle::AreConditionsMet(const RPG::TroopPageCondition& condition) {
 		return false;
 	}
 
-	if (condition.flags.switch_a && !Game_Switches.Get(condition.switch_a_id))
+	if (condition.flags.switch_a && !Main_Data::game_switches->Get(condition.switch_a_id))
 		return false;
 
-	if (condition.flags.switch_b && !Game_Switches.Get(condition.switch_b_id))
+	if (condition.flags.switch_b && !Main_Data::game_switches->Get(condition.switch_b_id))
 		return false;
 
-	if (condition.flags.variable && !(Game_Variables.Get(condition.variable_id) >= condition.variable_value))
+	if (condition.flags.variable && !(Main_Data::game_variables->Get(condition.variable_id) >= condition.variable_value))
 		return false;
 
 	if (condition.flags.turn && !CheckTurns(GetTurn(), condition.turn_b, condition.turn_a))
@@ -367,12 +368,20 @@ bool Game_Battle::AreConditionsMet(const RPG::TroopPageCondition& condition) {
 }
 
 bool Game_Battle::UpdateEvents() {
-	if (Game_Battle::CheckWin() || Game_Battle::CheckLose()) {
+	const auto battle_end = Game_Battle::CheckWin() || Game_Battle::CheckLose();
+
+	// 2k3 battle interupts events immediately when battle end conditions occur.
+	if (Player::IsRPG2k3() && battle_end) {
 		return true;
 	}
 
 	if (interpreter->IsRunning()) {
 		return false;
+	}
+
+	// 2k battle end conditions wait for interpreter to finish.
+	if (Player::IsRPG2k() && battle_end) {
+		return true;
 	}
 
 	// Check if another page can run now or if a page that could run can no longer run.

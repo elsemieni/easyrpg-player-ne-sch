@@ -15,27 +15,15 @@
  * along with EasyRPG Player. If not, see <http://www.gnu.org/licenses/>.
  */
 
-// Headers
-#include "tone.h"
-#include "util_macro.h"
+#ifndef EP_COMPILER_H
+#define EP_COMPILER_H
 
-Tone::Tone()  :
-	red(128),
-	green(128),
-	blue(128),
-	gray(128) {
-}
+#ifdef __GNUC__
+#define EP_LIKELY(x) __builtin_expect(!!(x), 1)
+#define EP_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#else
+#define EP_LIKELY(x) (x)
+#define EP_UNLIKELY(x) (x)
+#endif
 
-Tone::Tone(int red, int green, int blue, int gray) :
-	red(min(255, max(0, red))),
-	green(min(255, max(0, green))),
-	blue(min(255, max(0, blue))),
-	gray(min(255, max(0, gray))) {
-}
-
-void Tone::Set(int nred, int ngreen, int nblue, int ngray) {
-	red = min(255, max(0, nred));
-	green = min(255, max(0, ngreen));
-	blue = min(255, max(0, nblue));
-	gray = min(255, max(0, ngray));
-}
+#endif

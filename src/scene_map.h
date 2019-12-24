@@ -70,6 +70,7 @@ private:
 		bool erase_screen = false;
 		bool use_default_transition_in = false;
 		bool defer_recursive_teleports = false;
+		bool no_transition_in = false;
 	};
 	void StartPendingTeleport(TeleportParams tp);
 	void FinishPendingTeleport(TeleportParams tp);
@@ -92,6 +93,8 @@ private:
 
 	template <typename F> void AsyncNext(F&& f);
 	template <typename F> void OnAsyncSuspend(F&& f, AsyncOp aop, bool is_preupdate);
+
+	void UpdateGraphics();
 
 	std::unique_ptr<Window_Message> message_window;
 

@@ -22,6 +22,7 @@
 #include <string>
 #include "drawable.h"
 #include "system.h"
+#include "tone.h"
 
 /**
  * Renders the weather effects.
@@ -29,33 +30,35 @@
 class Weather : public Drawable {
 public:
 	Weather();
-	~Weather() override;
 
-	void Draw() override;
+	void Draw(Bitmap& dst) override;
 	void Update();
-
-	int GetZ() const override;
-	DrawableType GetType() const override;
 
 	Tone GetTone() const;
 	void SetTone(Tone tone);
 
 private:
-	void DrawRain();
-	void DrawSnow();
-	void DrawFog();
-	void DrawSandstorm();
+	void DrawRain(Bitmap& dst);
+	void DrawSnow(Bitmap& dst);
+	void DrawFog(Bitmap& dst);
+	void DrawSandstorm(Bitmap& dst);
+	void CreateFogOverlay();
+	void DrawFogOverlay(Bitmap& dst, const Bitmap& overlay, BitmapRef& tone_overlay);
 
-	static const int z = Priority_Weather;
-	static const DrawableType type = TypeWeather;
-
-	BitmapRef weather_surface;
 	BitmapRef snow_bitmap;
 	BitmapRef rain_bitmap;
+	BitmapRef fog_bitmap;
+	BitmapRef sand_bitmap;
+
+	BitmapRef fog_tone_bitmap;
+	BitmapRef sand_tone_bitmap;
 
 	Tone tone_effect;
-
-	bool dirty;
+	bool tone_dirty = false;
 };
+
+inline Tone Weather::GetTone() const {
+	return tone_effect;
+}
 
 #endif

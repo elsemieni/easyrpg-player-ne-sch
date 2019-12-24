@@ -18,6 +18,15 @@
 #ifndef EP_DRAWABLE_H
 #define EP_DRAWABLE_H
 
+#include <cstdint>
+#include <memory>
+
+class Bitmap;
+class Drawable;
+
+template <typename T>
+static constexpr bool IsDrawable = std::is_base_of<Drawable,T>::value;
+
 // What kind of drawable is the current one?
 enum DrawableType {
 	TypeWindow,
@@ -60,15 +69,22 @@ enum Priority {
  */
 class Drawable {
 public:
-	virtual ~Drawable() {};
+	Drawable(DrawableType type, int z, bool is_global);
 
-	virtual void Draw() = 0;
+	Drawable(const Drawable&) = delete;
+	Drawable& operator=(const Drawable&) = delete;
 
-	virtual int GetZ() const = 0;
+	virtual ~Drawable();
 
-	virtual DrawableType GetType() const = 0;
+	virtual void Draw(Bitmap& dst) = 0;
 
-	virtual bool IsGlobal() const { return false; }
+	int GetZ() const;
+
+	void SetZ(int z);
+
+	DrawableType GetType() const;
+
+	bool IsGlobal() const;
 
 	/**
 	 * Converts a RPG Maker map layer value into a EasyRPG priority value.
@@ -83,6 +99,23 @@ public:
 	 * @return Priority or 0 when not found
 	 */
 	static int GetPriorityForBattleLayer(int which);
+private:
+	int _z = 0;
+	uint16_t _type = TypeDefault;
+	bool _is_global = false;
 };
+
+inline int Drawable::GetZ() const {
+	return _z;
+}
+
+inline DrawableType Drawable::GetType() const {
+	return static_cast<DrawableType>(_type);
+}
+
+inline bool Drawable::IsGlobal() const {
+	return _is_global;
+}
+
 
 #endif

@@ -20,6 +20,7 @@
 
 #include <cstdint>
 #include <tuple>
+#include <ostream>
 
 /**
  * Color class.
@@ -27,10 +28,9 @@
 class Color {
 public:
 	/**
-	 * Constructor. All components are set to 0, but alpha
-	 * that is set to 255.
+	 * Constructor. All components are set to 0.
 	 */
-	Color();
+	constexpr Color() = default;
 
 	/**
 	 * Constructor.
@@ -40,29 +40,19 @@ public:
 	 * @param blue blue component.
 	 * @param alpha alpha component.
 	 */
-	Color(uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha);
-
-	/**
-	 * Sets all color properties.
-	 *
-	 * @param red red component.
-	 * @param green green component.
-	 * @param blue blue component.
-	 * @param alpha alpha component.
-	 */
-	void Set(uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha);
+	constexpr Color(uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha);
 
 	/** Red component. */
-	uint8_t red;
+	uint8_t red = 0;
 
 	/** Green component. */
-	uint8_t green;
+	uint8_t green = 0;
 
 	/** Blue component. */
-	uint8_t blue;
+	uint8_t blue = 0;
 
 	/** Alpha component. */
-	uint8_t alpha;
+	uint8_t alpha = 0;
 };
 
 /**
@@ -92,6 +82,22 @@ inline bool operator<(const Color &l, const Color& r) {
 	return
 		std::tie(l.red, l.green, l.blue, l.alpha) <
 		std::tie(r.red, r.green, r.blue, r.alpha);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const Color& c) {
+	os << "Color{"
+		<< static_cast<int>(c.red) << ", "
+		<< static_cast<int>(c.green) << ", "
+		<< static_cast<int>(c.blue) << ", "
+		<< static_cast<int>(c.alpha) << "}";
+	return os;
+}
+
+constexpr Color::Color(uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha) :
+	red(red),
+	green(green),
+	blue(blue),
+	alpha(alpha) {
 }
 
 #endif

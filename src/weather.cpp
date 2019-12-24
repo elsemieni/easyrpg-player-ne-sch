@@ -18,71 +18,43 @@
 // Headers
 #include <string>
 #include <vector>
-#include "baseui.h"
 #include "bitmap.h"
 #include "color.h"
 #include "game_screen.h"
-#include "graphics.h"
 #include "main_data.h"
 #include "weather.h"
+#include "drawable_mgr.h"
+#include "player.h"
 
 Weather::Weather() :
-	dirty(false) {
-
-	Graphics::RegisterDrawable(this);
-}
-
-Weather::~Weather() {
-	Graphics::RemoveDrawable(this);
-}
-
-int Weather::GetZ() const {
-	return z;
-}
-
-DrawableType Weather::GetType() const {
-	return type;
+	Drawable(TypeWeather, Priority_Weather, false)
+{
+	DrawableMgr::Register(this);
 }
 
 void Weather::Update() {
 }
 
-void Weather::Draw() {
-	if (Main_Data::game_screen->GetWeatherType() != Game_Screen::Weather_None) {
-		if (!weather_surface) {
-			weather_surface = Bitmap::Create(SCREEN_TARGET_WIDTH, SCREEN_TARGET_HEIGHT);
-		}
-	}
-
-	if (dirty && weather_surface) {
-		weather_surface->Clear();
-		dirty = false;
-	}
-
+void Weather::Draw(Bitmap& dst) {
 	switch (Main_Data::game_screen->GetWeatherType()) {
 		case Game_Screen::Weather_None:
 			break;
 		case Game_Screen::Weather_Rain:
-			DrawRain();
+			DrawRain(dst);
 			break;
 		case Game_Screen::Weather_Snow:
-			DrawSnow();
+			DrawSnow(dst);
 			break;
 		case Game_Screen::Weather_Fog:
-			DrawFog();
+			DrawFog(dst);
 			break;
 		case Game_Screen::Weather_Sandstorm:
-			DrawSandstorm();
+			DrawSandstorm(dst);
 			break;
-	}
-
-	if (dirty && weather_surface) {
-		BitmapRef dst = DisplayUi->GetDisplaySurface();
-		dst->Blit(0, 0, *weather_surface, weather_surface->GetRect(), 255);
 	}
 }
 
-static const uint8_t snow_image[] =
+static constexpr uint8_t snow_image[] =
 {
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00,
     0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
@@ -103,7 +75,7 @@ static const uint8_t snow_image[] =
     0x4e, 0x44, 0xae, 0x42, 0x60, 0x82
 };
 
-static const uint8_t rain_image[] = {
+static constexpr uint8_t rain_image[] = {
 	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00,
 	0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00,
 	0x00, 0x10, 0x01, 0x03, 0x00, 0x00, 0x00, 0x11, 0x44, 0xac, 0x3e,
@@ -117,9 +89,35 @@ static const uint8_t rain_image[] = {
 	0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82
 };
 
-static const int snowflake_visible = 150;
+static constexpr int fog_overlay_tile_width = TILE_SIZE;
+static constexpr int fog_overlay_tile_height = TILE_SIZE;
+static constexpr int fog_overlay_num_colors = 3;
 
-void Weather::DrawRain() {
+static constexpr Color fog_overlay_colors[fog_overlay_num_colors] = {
+	{ 230, 230, 230, 255 },
+	{ 240, 240, 240, 255 },
+	{ 255, 255, 255, 255 },
+};
+
+static constexpr Color sand_overlay_colors[fog_overlay_num_colors] = {
+	{ 220, 220, 160, 255 },
+	{ 230, 230, 170, 255 },
+	{ 240, 240, 180, 255 },
+};
+
+// RPG_RT only allows strength 0, 1, and 2. If you hack strength 3,
+// it will show the upper layer as fully opaque and the lower layer
+// with opacity 64. We set lower layer to 0 and don't render it
+// since it can't be seen anyway.
+static constexpr int num_opacities = 4;
+static constexpr int fog_opacity[2][4] = {
+	{ 32, 64, 96, 0 },
+	{ 64, 80, 160, 255 },
+};
+
+static constexpr int snowflake_visible = 150;
+
+void Weather::DrawRain(Bitmap& dst) {
 	if (!rain_bitmap) {
 		rain_bitmap = Bitmap::Create(rain_image, sizeof(rain_image));
 		if (tone_effect != Tone()) {
@@ -129,20 +127,17 @@ void Weather::DrawRain() {
 
 	Rect rect = rain_bitmap->GetRect();
 
-	const std::vector<Game_Screen::Snowflake>& snowflakes = Main_Data::game_screen->GetSnowflakes();
+	const auto& snowflakes = Main_Data::game_screen->GetSnowflakes();
 
-	std::vector<Game_Screen::Snowflake>::const_iterator it;
-	for (it = snowflakes.begin(); it != snowflakes.end(); ++it) {
-		const Game_Screen::Snowflake& f = *it;
-		if (f.life > snowflake_visible)
+	for (auto& sf: snowflakes) {
+		if (sf.life > snowflake_visible) {
 			continue;
-		weather_surface->Blit(f.x - f.y/2, f.y, *rain_bitmap, rect, 96);
+		}
+		dst.Blit(sf.x - sf.y/2, sf.y, *rain_bitmap, rect, 96);
 	}
-
-	dirty = true;
 }
 
-void Weather::DrawSnow() {
+void Weather::DrawSnow(Bitmap& dst) {
 	if (!snow_bitmap) {
 		snow_bitmap = Bitmap::Create(snow_image, sizeof(snow_image));
 		if (tone_effect != Tone()) {
@@ -150,49 +145,103 @@ void Weather::DrawSnow() {
 		}
 	}
 
-	static const int wobble[2][18] = {
+	static constexpr int wobble[2][18] = {
 		{-1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 		{-1,-1, 0, 0, 1, 1, 0,-1,-1, 0, 1, 0, 1, 1, 0,-1, 0, 0}
 	};
 
 	Rect rect = snow_bitmap->GetRect();
 
-	const std::vector<Game_Screen::Snowflake>& snowflakes = Main_Data::game_screen->GetSnowflakes();
+	const auto& snowflakes = Main_Data::game_screen->GetSnowflakes();
 
-	for (const Game_Screen::Snowflake& f : snowflakes) {
-		int x = f.x - f.y / 4;
-		int y = f.y;
+	for (const auto& sf : snowflakes) {
+		int x = sf.x - sf.y / 4;
+		int y = sf.y;
 		int i = (y / 2) % 18;
 		x += wobble[0][i];
 		y += wobble[1][i];
-		weather_surface->Blit(x, y, *snow_bitmap, rect, f.life);
+		dst.Blit(x, y, *snow_bitmap, rect, sf.life);
+	}
+}
+
+void Weather::DrawFog(Bitmap& dst) {
+	if (!fog_bitmap) {
+		CreateFogOverlay();
 	}
 
-	dirty = true;
+	DrawFogOverlay(dst, *fog_bitmap, fog_tone_bitmap);
 }
 
-void Weather::DrawFog() {
-	static const int opacities[3] = {128, 160, 192};
-	int opacity = opacities[Main_Data::game_screen->GetWeatherStrength()];
+void Weather::DrawSandstorm(Bitmap& dst) {
+	if (!sand_bitmap) {
+		CreateFogOverlay();
+	}
 
-	weather_surface->Fill(Color(128, 128, 128, opacity));
+	DrawFogOverlay(dst, *sand_bitmap, sand_tone_bitmap);
 
-	dirty = true;
+	// FIXME: Figure out sand particules
+	// 4 colors: white, red, orange, yellow, 1 pixel wide, 2 pixels tall.
 }
 
-void Weather::DrawSandstorm() {
-	static const int opacities[3] = {128, 160, 192};
-	int opacity = opacities[Main_Data::game_screen->GetWeatherStrength()];
+void Weather::CreateFogOverlay() {
+	uint32_t fog_pixels[fog_overlay_num_colors];
+	uint32_t sand_pixels[fog_overlay_num_colors];
 
-	weather_surface->Fill(Color(192, 160, 128, opacity));
+	for (int i = 0; i < fog_overlay_num_colors; ++i) {
+		auto fc = fog_overlay_colors[i];
+		auto sc = sand_overlay_colors[i];
+		fog_pixels[i] = Bitmap::pixel_format.rgba_to_uint32_t(fc.red, fc.green, fc.blue, fc.alpha);
+		sand_pixels[i] = Bitmap::pixel_format.rgba_to_uint32_t(sc.red, sc.green, sc.blue, sc.alpha);
+	}
 
-	// TODO
+	const auto h = fog_overlay_tile_height;
+	const auto w = fog_overlay_tile_width;
 
-	dirty = true;
+	fog_bitmap = Bitmap::Create(w, h);
+	sand_bitmap = Bitmap::Create(w, h);
+
+	auto* fog_img = reinterpret_cast<uint32_t*>(fog_bitmap->pixels());
+	auto* sand_img = reinterpret_cast<uint32_t*>(sand_bitmap->pixels());
+
+	for (int i = 0; i < w * h; ++i) {
+		// FIXME: How well does this match RPG_RT textures?
+		int px = Utils::GetRandomNumber(0, fog_overlay_num_colors - 1);
+		// FIXME: This only works for 32bit pixel formats
+		fog_img[i] = fog_pixels[px];
+		sand_img[i] = sand_pixels[px];
+	}
 }
 
-Tone Weather::GetTone() const {
-	return tone_effect;
+void Weather::DrawFogOverlay(Bitmap& dst, const Bitmap& overlay, BitmapRef& tone_overlay) {
+	auto* src = &overlay;
+
+	const auto dr = dst.GetRect();
+	const auto sr = src->GetRect();
+
+	if (tone_effect != Tone()) {
+		if (!tone_overlay) {
+			tone_overlay = Bitmap::Create(overlay, sr);
+		}
+		if (tone_dirty) {
+			tone_overlay->ToneBlit(0, 0, overlay, sr, tone_effect, Opacity::opaque, false);
+		}
+		src = tone_overlay.get();
+	}
+
+	auto str = Utils::Clamp(Main_Data::game_screen->GetWeatherStrength(), 0, num_opacities - 1);
+	int back_opacity = fog_opacity[0][str];
+	int front_opacity = fog_opacity[1][str];
+
+
+	// FIXME: Confirm exact speed in x direction
+	// FIXME: Confirm algorithm for changes in y. Appears to be very slow and random.
+	int frames = Player::GetFrames();
+	const int x = (frames * 32 / 256) % fog_overlay_tile_width;
+	const int y = (frames * 1 / 256) % fog_overlay_tile_width;
+
+	// FIXME: Confirm whether back layer moves right or is still?
+	dst.TiledBlit(-x + 8, -y, sr, *src, dr, back_opacity);
+	dst.TiledBlit(x, -y, sr, *src, dr, front_opacity);
 }
 
 void Weather::SetTone(Tone tone) {
@@ -200,5 +249,7 @@ void Weather::SetTone(Tone tone) {
 		tone_effect = tone;
 		rain_bitmap.reset();
 		snow_bitmap.reset();
+
+		tone_dirty = true;
 	}
 }

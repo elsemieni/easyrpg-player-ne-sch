@@ -44,15 +44,16 @@ add_library(${PROJECT_NAME}
 	src/battle_animation.h
 	src/bitmap.cpp
 	src/bitmapfont.h
-	src/bitmapfont_rmg2000.cpp
-	src/bitmapfont_ttyp0.cpp
-	src/bitmapfont_wqy.cpp
+	src/bitmapfont_glyph.h
+	src/bitmapfont_rmg2000.h
+	src/bitmapfont_ttyp0.h
+	src/bitmapfont_wqy.h
 	src/bitmap.h
 	src/bitmap_hslrgb.h
 	src/cache.cpp
 	src/cache.h
-	src/color.cpp
 	src/color.h
+	src/compiler.h
 	src/decoder_libsndfile.cpp
 	src/decoder_libsndfile.h
 	src/decoder_mpg123.cpp
@@ -74,6 +75,10 @@ add_library(${PROJECT_NAME}
 	src/docmain.h
 	src/drawable.cpp
 	src/drawable.h
+	src/drawable_list.cpp
+	src/drawable_list.h
+	src/drawable_mgr.cpp
+	src/drawable_mgr.h
 	src/exe_reader.cpp
 	src/exe_reader.h
 	src/exfont.h
@@ -170,6 +175,8 @@ add_library(${PROJECT_NAME}
 	src/options.h
 	src/output.cpp
 	src/output.h
+	src/pending_message.h
+	src/pending_message.cpp
 	src/picojson.h
 	src/pixel_format.h
 	src/plane.cpp
@@ -238,8 +245,8 @@ add_library(${PROJECT_NAME}
 	src/scene_title.h
 	src/screen.cpp
 	src/screen.h
-	src/shinonome_gothic.cpp
-	src/shinonome_mincho.cpp
+	src/shinonome_gothic.h
+	src/shinonome_mincho.h
 	src/sprite_airshipshadow.cpp
 	src/sprite_airshipshadow.h
 	src/sprite_battler.cpp
@@ -266,7 +273,6 @@ add_library(${PROJECT_NAME}
 	src/tilemap.h
 	src/tilemap_layer.cpp
 	src/tilemap_layer.h
-	src/tone.cpp
 	src/tone.h
 	src/transform.h
 	src/transition.cpp
@@ -425,8 +431,8 @@ set(PLAYER_BUILD_LIBLCF_GIT "https://github.com/EasyRPG/liblcf.git" CACHE STRING
 if(PLAYER_BUILD_LIBLCF)
 	# liblcf is built as part of this cmake file
 	set(LIBLCF_PATH "${CMAKE_CURRENT_SOURCE_DIR}/lib/liblcf")
-	find_package(Git REQUIRED)
 	if(NOT EXISTS ${LIBLCF_PATH})
+		find_package(Git REQUIRED)
 		execute_process(COMMAND ${GIT_EXECUTABLE} clone "--depth=1"
 			"${PLAYER_BUILD_LIBLCF_GIT}"
 			"${LIBLCF_PATH}")
@@ -736,7 +742,6 @@ endif()
 option(PLAYER_ENABLE_TESTS "Execute unit tests after compilation finishes" ON)
 
 if(PLAYER_ENABLE_TESTS)
-	enable_testing()
 	set(TEST_GAME_REPOSITORY_PATH "${CMAKE_CURRENT_SOURCE_DIR}/lib/TestGame")
 	if(NOT EXISTS ${TEST_GAME_REPOSITORY_PATH})
 		execute_process(COMMAND ${GIT_EXECUTABLE} clone "--depth=1"
@@ -753,18 +758,33 @@ if(PLAYER_ENABLE_TESTS)
 	endif()
 
 	file(GLOB TEST_FILES ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)
-	foreach(i ${TEST_FILES})
-		get_filename_component(name "${i}" NAME_WE)
-		add_executable(test_${name} ${i})
-		target_link_libraries(test_${name} ${PROJECT_NAME})
+	add_executable(test_runner_player EXCLUDE_FROM_ALL ${TEST_FILES})
+	set_target_properties(test_runner_player PROPERTIES OUTPUT_NAME "test_runner")
+	target_compile_definitions(test_runner_player PUBLIC EP_TEST_PATH=\"${CMAKE_CURRENT_SOURCE_DIR}/tests\")
+	target_link_libraries(test_runner_player ${PROJECT_NAME})
+	add_custom_target(check_player COMMAND test_runner_player)
+	if(NOT TARGET check)
+		add_custom_target(check)
+	endif()
+	add_dependencies(check_player test_runner_player)
+	add_dependencies(check check_player)
+endif()
 
-		add_test(
-			NAME test_${name} WORKING_DIRECTORY ${TEST_GAME_PATH}
-			COMMAND ${PROJECT_BINARY_DIR}/test_${name})
-		set_tests_properties(test_${name}
-			PROPERTIES ENVIRONMENT "${TEST_ENVS}")
+# Benchmarks
+option(PLAYER_ENABLE_BENCHMARKS "Build benchmarks" OFF)
+
+if(PLAYER_ENABLE_BENCHMARKS)
+	find_package(benchmark REQUIRED)
+	file(GLOB BENCH_FILES ${CMAKE_CURRENT_SOURCE_DIR}/bench/*.cpp)
+	foreach(i ${BENCH_FILES})
+		get_filename_component(name "${i}" NAME_WE)
+		add_executable(bench_${name} ${i})
+		target_link_libraries(bench_${name} ${PROJECT_NAME})
+		target_link_libraries(bench_${name} benchmark)
 	endforeach()
 endif()
+
+
 
 # Print summary
 message(STATUS "")

@@ -1,8 +1,9 @@
 #include "game_message.h"
 #include "options.h"
-
-#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#include <iostream> // needed on macOS (see onqtam/doctest#126)
 #include "doctest.h"
+
+TEST_SUITE_BEGIN("Word Wrap");
 
 constexpr int limit_2k = SCREEN_TARGET_WIDTH - 20;
 
@@ -95,3 +96,5 @@ TEST_CASE("limits") {
 	REQUIRE_EQ(lines[1], limit);
 
 }
+
+TEST_SUITE_END();

@@ -291,8 +291,7 @@ void Player::Update(bool update_scene) {
 		Scene::PopUntil(Scene::Null);
 	} else if (reset_flag) {
 		reset_flag = false;
-		if (Scene::Find(Scene::Title) && Scene::instance->type != Scene::Title) {
-			Scene::PopUntil(Scene::Title);
+		if (Scene::ReturnToTitleScene()) {
 			// Fade out music and stop sound effects before returning
 			Game_System::BgmFade(800);
 			Audio().SE_Stop();
@@ -309,7 +308,12 @@ void Player::Update(bool update_scene) {
 	int speed_modifier = GetSpeedModifier();
 
 	for (int i = 0; i < speed_modifier; ++i) {
+		auto was_transition_pending = Graphics::IsTransitionPending();
 		Graphics::Update();
+		// If we aren't waiting on a transition, but we are waiting for scene delay.
+		if (!was_transition_pending) {
+			Scene::instance->UpdateDelayFrames();
+		}
 		if (update_scene) {
 			Scene::instance->Update();
 			// Async file loading or transition. Don't increment the frame
@@ -329,12 +333,14 @@ void Player::Update(bool update_scene) {
 
 	start_time = next_frame;
 
+	BitmapRef disp = DisplayUi->GetDisplaySurface();
+
 #ifdef EMSCRIPTEN
-	Graphics::Draw();
+	Graphics::Draw(*disp);
 #else
 	cur_time = (double)DisplayUi->GetTicks();
 	if (cur_time < next_frame) {
-		Graphics::Draw();
+		Graphics::Draw(*disp);
 		cur_time = (double)DisplayUi->GetTicks();
 		// Don't use sleep when the port uses an external timing source
 #if !defined(USE_LIBRETRO)
@@ -727,7 +733,7 @@ void Player::CreateGameObjects() {
 			}
 		}
 	}
-	Output::Debug("Engine configured as: 2k=%d 2k3=%d 2k3Legacy=%d MajorUpdated=%d Eng=%d", Player::IsRPG2k(), Player::IsRPG2k3(), Player::IsRPG2k3Legacy(), Player::IsMajorUpdatedVersion(), Player::IsEnglish());
+	Output::Debug("Engine configured as: 2k=%d 2k3=%d MajorUpdated=%d Eng=%d", Player::IsRPG2k(), Player::IsRPG2k3(), Player::IsMajorUpdatedVersion(), Player::IsEnglish());
 
 	FileFinder::InitRtpPaths(no_rtp_flag, no_rtp_warning_flag);
 
@@ -774,21 +780,26 @@ void Player::ResetGameObjects() {
 	Main_Data::Cleanup();
 
 	Main_Data::game_data.Setup();
+
+	Main_Data::game_switches = std::make_unique<Game_Switches>();
+
+	auto min_var = Player::IsRPG2k3() ? Game_Variables::min_2k3 : Game_Variables::min_2k;
+	auto max_var = Player::IsRPG2k3() ? Game_Variables::max_2k3 : Game_Variables::max_2k;
+	Main_Data::game_variables = std::make_unique<Game_Variables>(min_var, max_var);
+
 	// Prevent a crash when Game_Map wants to reset the screen content
 	// because Setup() modified pictures array
-	Main_Data::game_screen.reset(new Game_Screen());
+	Main_Data::game_screen = std::make_unique<Game_Screen>();
 
 	Game_Actors::Init();
 	Game_Map::Init();
 	Game_Message::Init();
-	Game_Switches.Reset();
 	Game_System::Init();
 	Game_Temp::Init();
-	Game_Variables.Reset();
 
-	Main_Data::game_enemyparty.reset(new Game_EnemyParty());
-	Main_Data::game_party.reset(new Game_Party());
-	Main_Data::game_player.reset(new Game_Player());
+	Main_Data::game_enemyparty = std::make_unique<Game_EnemyParty>();
+	Main_Data::game_party = std::make_unique<Game_Party>();
+	Main_Data::game_player = std::make_unique<Game_Player>();
 
 	FrameReset();
 }
@@ -945,6 +956,9 @@ void Player::LoadSavegame(const std::string& save_name) {
 	FileRequestAsync* map = Game_Map::RequestMap(map_id);
 	save_request_id = map->Bind(&OnMapSaveFileReady);
 	map->SetImportantFile(true);
+
+	Main_Data::game_switches->SetData(std::move(Main_Data::game_data.system.switches));
+	Main_Data::game_variables->SetData(std::move(Main_Data::game_data.system.variables));
 
 	Game_System::ReloadSystemGraphic();
 
@@ -1133,34 +1147,6 @@ Game related parameters (e.g. new-game and load-game-id) don't work correctly wh
 startup directory does not contain a valid game (and the game browser loads)
 
 Alex, EV0001 and the EasyRPG authors wish you a lot of fun!)" << std::endl;
-}
-
-bool Player::IsRPG2k() {
-	return (engine & EngineRpg2k) == EngineRpg2k;
-}
-
-bool Player::IsRPG2k3Legacy() {
-	return (engine == EngineRpg2k3 || engine == (EngineRpg2k3 | EngineMajorUpdated));
-}
-
-bool Player::IsRPG2k3() {
-	return (engine & EngineRpg2k3) == EngineRpg2k3;
-}
-
-bool Player::IsMajorUpdatedVersion() {
-	return (engine & EngineMajorUpdated) == EngineMajorUpdated;
-}
-
-bool Player::IsRPG2k3E() {
-	return (IsRPG2k3() && IsEnglish());
-}
-
-bool Player::IsRPG2kE() {
-	return (IsRPG2k() && IsEnglish());
-}
-
-bool Player::IsEnglish() {
-	return (engine & EngineEnglish) == EngineEnglish;
 }
 
 bool Player::IsCP932() {

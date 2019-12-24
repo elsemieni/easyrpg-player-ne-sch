@@ -32,7 +32,6 @@
 #include "async_op.h"
 
 class FileRequestAsync;
-class Window_Message;
 
 // These are in sixteenths of a pixel.
 constexpr int SCREEN_TILE_SIZE = 256;
@@ -161,6 +160,12 @@ namespace Game_Map {
 	/** Same as AddScreenX, but for the Y-direction. */
 	void AddScreenY(int& screen_y, int& inc);
 
+	/** @return how many sixteenths we scrolled right during this frame */
+	int GetScrolledRight();
+
+	/** @return how many sixteenths we scrolled down during this frame */
+	int GetScrolledDown();
+
 	/**
 	 * Gets if a tile coordinate is valid.
 	 *
@@ -255,10 +260,9 @@ namespace Game_Map {
 	 * @param actx asynchronous operations context. In out param.
 	 *        If IsActive() when passed in, will resume to that point.
 	 *        If IsActive() after return in, will suspend from that point.
-	 * @param the scene message window
 	 * @param is_preupdate Update only common events and map events
 	 */
-	void Update(MapUpdateAsyncContext& actx, Window_Message& message, bool is_preupdate = false);
+	void Update(MapUpdateAsyncContext& actx, bool is_preupdate = false);
 
 	/**
 	 * Gets current map_info.
@@ -613,9 +617,12 @@ namespace Game_Map {
 
 	void LockPan();
 	void UnlockPan();
-	void StartPan(int direction, int distance, int speed, bool wait);
-	void ResetPan(int speed, bool wait);
+	void StartPan(int direction, int distance, int speed);
+	void ResetPan(int speed);
 	void UpdatePan();
+
+	/** @return how many frames it'll take to finish the current pan */
+	int GetPanWait();
 
 	/**
 	 * Gets whether there are any starting non-parallel event or common event.
@@ -631,7 +638,6 @@ namespace Game_Map {
 	void RemoveAllPendingMoves();
 
 	bool IsPanActive();
-	bool IsPanWaiting();
 	bool IsPanLocked();
 	int GetPanX();
 	int GetPanY();
@@ -641,7 +647,7 @@ namespace Game_Map {
 	void UpdateProcessedFlags(bool is_preupdate);
 	bool UpdateCommonEvents(MapUpdateAsyncContext& actx);
 	bool UpdateMapEvents(MapUpdateAsyncContext& actx);
-	bool UpdateForegroundEvents(MapUpdateAsyncContext& actx, Window_Message& message);
+	bool UpdateForegroundEvents(MapUpdateAsyncContext& actx);
 
 	FileRequestAsync* RequestMap(int map_id);
 

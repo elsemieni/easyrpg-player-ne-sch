@@ -19,10 +19,11 @@
 #define EP_SCENE_H
 
 // Headers
-#include "graphics.h"
 #include "system.h"
 #include "async_op.h"
+#include "drawable_list.h"
 #include <vector>
+#include <functional>
 
 /**
  * Scene virtual class.
@@ -55,6 +56,9 @@ public:
 		Teleport,
 		SceneMax
 	};
+
+	static constexpr int kStartGameDelayFrames = 60;
+	static constexpr int kReturnTitleDelayFrames = 20;
 
 	/**
 	 * Constructor.
@@ -196,7 +200,7 @@ public:
 	/** Called by the graphic system to request drawing of a background, usually a system color background */
 	virtual void DrawBackground();
 
-	Graphics::State& GetGraphicsState();
+	DrawableList& GetDrawableList();
 
 	/** @return true if the Scene has been initialized */
 	bool IsInitialized() const;
@@ -221,6 +225,26 @@ public:
 	 */
 	static bool CheckSceneExit(AsyncOp aop);
 
+	/**
+	 * Set number of frames to wait before start/continue the scene
+	 * 
+	 * @frames number of frames to wait
+	 */
+	void SetDelayFrames(int frames);
+
+	/** @return true if there are >0 number of frames to wait before scene start/continue */
+	bool HasDelayFrames() const;
+
+	/** Decrement delay frames by 1 if we're waiting */
+	void UpdateDelayFrames();
+
+	/** 
+	 * Pops the stack until the title screen and sets proper delay.
+	 *
+	 * @return false if there is no title scene in the stack, or we're already on the title scene
+	 */
+	static bool ReturnToTitleScene();
+
 protected:
 	using AsyncContinuation = std::function<void(void)>;
 	AsyncContinuation async_continuation;
@@ -231,6 +255,7 @@ private:
 
 	static int push_pop_operation;
 
+	DrawableList drawable_list;
 	/**
 	 * true if Start() was called. For handling the special case that two
 	 * or more scenes are pushed. In that case only the last calls start, the
@@ -240,15 +265,11 @@ private:
 
 	bool was_async_from_main_loop = false;
 
-	/**
-	 * Graphic stack of the scene
-	 */
-	Graphics::State state;
-
 	static void DebugValidate(const char* caller);
 	static void UpdatePrevScene();
 
 	Scene::SceneType request_scene = Null;
+	int delay_frames = 0;
 };
 
 inline bool Scene::IsInitialized() const {
@@ -267,5 +288,22 @@ inline void Scene::SetRequestedScene(SceneType scene) {
 	request_scene = scene;
 }
 
+inline void Scene::SetDelayFrames(int frames) {
+	delay_frames = frames;
+}
+
+inline bool Scene::HasDelayFrames() const {
+	return delay_frames > 0;
+}
+
+inline void Scene::UpdateDelayFrames() {
+	if (HasDelayFrames()) {
+		--delay_frames;
+	}
+}
+
+inline DrawableList& Scene::GetDrawableList() {
+	return drawable_list;
+}
 
 #endif

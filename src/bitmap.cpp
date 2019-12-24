@@ -16,11 +16,13 @@
  */
 
 // Headers
+#define _USE_MATH_DEFINES
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <algorithm>
 #include <iostream>
+#include <unordered_map>
 
 #include "utils.h"
 #include "cache.h"
@@ -384,58 +386,44 @@ Rect Bitmap::TransformRectangle(const Transform& xform, const Rect& rect) {
 	return Rect(bounds.x1, bounds.y1, bounds.x2 - bounds.x1, bounds.y2 - bounds.y1);
 }
 
-bool Bitmap::formats_initialized = false;
-std::map<int, pixman_format_code_t> Bitmap::formats_map;
+static constexpr std::array<std::pair<int,pixman_format_code_t>, 27> formats_map = {{
+		{ DynamicFormat(32,8,24,8,16,8,8,8,0,PF::Alpha).code_alpha(), PIXMAN_r8g8b8a8 },
+		{ DynamicFormat(32,8,24,8,16,8,8,8,0,PF::NoAlpha).code_alpha(), PIXMAN_r8g8b8x8 },
 
-void Bitmap::add_pair(pixman_format_code_t pcode, const DynamicFormat& format) {
-	int dcode = format.code_alpha();
-	formats_map[dcode] = pcode;
-}
+		{ DynamicFormat(32,8,16,8,8,8,0,8,24,PF::Alpha).code_alpha(), PIXMAN_a8r8g8b8 },
+		{ DynamicFormat(32,8,16,8,8,8,0,0,0,PF::NoAlpha).code_alpha(), PIXMAN_x8r8g8b8 },
+		{ DynamicFormat(32,8,0,8,8,8,16,8,24,PF::Alpha).code_alpha(), PIXMAN_a8b8g8r8 },
+		{ DynamicFormat(32,8,0,8,8,8,16,0,0,PF::NoAlpha).code_alpha(), PIXMAN_x8b8g8r8 },
+		{ DynamicFormat(32,8,8,8,16,8,24,8,0,PF::Alpha).code_alpha(), PIXMAN_b8g8r8a8 },
+		{ DynamicFormat(32,8,8,8,16,8,24,0,0,PF::NoAlpha).code_alpha(), PIXMAN_b8g8r8x8 },
 
-void Bitmap::initialize_formats() {
-	if (formats_initialized)
-		return;
+		{ DynamicFormat(32,6,12,6,6,6,0,0,0,PF::NoAlpha).code_alpha(), PIXMAN_x14r6g6b6 },
+		{ DynamicFormat(32,10,20,10,10,10,0,0,0,PF::NoAlpha).code_alpha(), PIXMAN_x2r10g10b10 },
+		{ DynamicFormat(32,10,20,10,10,10,0,2,30,PF::Alpha).code_alpha(), PIXMAN_a2r10g10b10 },
+		{ DynamicFormat(32,10,0,10,10,10,20,0,0,PF::NoAlpha).code_alpha(), PIXMAN_x2b10g10r10 },
+		{ DynamicFormat(32,10,0,10,10,10,20,2,30,PF::Alpha).code_alpha(), PIXMAN_a2b10g10r10 },
 
-	add_pair(PIXMAN_a8r8g8b8, DynamicFormat(32,8,16,8,8,8,0,8,24,PF::Alpha));
-	add_pair(PIXMAN_x8r8g8b8, DynamicFormat(32,8,16,8,8,8,0,0,0,PF::NoAlpha));
-	add_pair(PIXMAN_a8b8g8r8, DynamicFormat(32,8,0,8,8,8,16,8,24,PF::Alpha));
-	add_pair(PIXMAN_x8b8g8r8, DynamicFormat(32,8,0,8,8,8,16,0,0,PF::NoAlpha));
-	add_pair(PIXMAN_b8g8r8a8, DynamicFormat(32,8,8,8,16,8,24,8,0,PF::Alpha));
-	add_pair(PIXMAN_b8g8r8x8, DynamicFormat(32,8,8,8,16,8,24,0,0,PF::NoAlpha));
+		{ DynamicFormat(24,8,16,8,8,8,0,0,0,PF::NoAlpha).code_alpha(), PIXMAN_r8g8b8 },
+		{ DynamicFormat(24,8,0,8,8,8,16,0,0,PF::NoAlpha).code_alpha(), PIXMAN_b8g8r8 },
 
-	add_pair(PIXMAN_x14r6g6b6, DynamicFormat(32,6,12,6,6,6,0,0,0,PF::NoAlpha));
-	add_pair(PIXMAN_x2r10g10b10, DynamicFormat(32,10,20,10,10,10,0,0,0,PF::NoAlpha));
-	add_pair(PIXMAN_a2r10g10b10, DynamicFormat(32,10,20,10,10,10,0,2,30,PF::Alpha));
-	add_pair(PIXMAN_x2b10g10r10, DynamicFormat(32,10,0,10,10,10,20,0,0,PF::NoAlpha));
-	add_pair(PIXMAN_a2b10g10r10, DynamicFormat(32,10,0,10,10,10,20,2,30,PF::Alpha));
-
-	add_pair(PIXMAN_r8g8b8a8, DynamicFormat(32,8,24,8,16,8,8,8,0,PF::Alpha));
-	add_pair(PIXMAN_r8g8b8x8, DynamicFormat(32,8,24,8,16,8,8,8,0,PF::NoAlpha));
-
-	add_pair(PIXMAN_r8g8b8, DynamicFormat(24,8,16,8,8,8,0,0,0,PF::NoAlpha));
-	add_pair(PIXMAN_b8g8r8, DynamicFormat(24,8,0,8,8,8,16,0,0,PF::NoAlpha));
-
-	add_pair(PIXMAN_r5g6b5, DynamicFormat(16,5,11,6,5,5,0,0,0,PF::NoAlpha));
-	add_pair(PIXMAN_b5g6r5, DynamicFormat(16,5,0,6,5,5,11,0,0,PF::NoAlpha));
-	add_pair(PIXMAN_a1r5g5b5, DynamicFormat(16,5,10,5,5,5,0,1,15,PF::Alpha));
-	add_pair(PIXMAN_x1r5g5b5, DynamicFormat(16,5,10,5,5,5,0,0,0,PF::NoAlpha));
-	add_pair(PIXMAN_a1b5g5r5, DynamicFormat(16,5,0,5,5,5,10,1,15,PF::Alpha));
-	add_pair(PIXMAN_x1b5g5r5, DynamicFormat(16,5,0,5,5,5,10,0,0,PF::NoAlpha));
-	add_pair(PIXMAN_a4r4g4b4, DynamicFormat(16,4,8,4,4,4,0,4,12,PF::Alpha));
-	add_pair(PIXMAN_x4r4g4b4, DynamicFormat(16,4,8,4,4,4,0,0,0,PF::NoAlpha));
-	add_pair(PIXMAN_a4b4g4r4, DynamicFormat(16,4,0,4,4,4,8,4,12,PF::Alpha));
-	add_pair(PIXMAN_x4b4g4r4, DynamicFormat(16,4,0,4,4,4,8,0,0,PF::NoAlpha));
-	add_pair(PIXMAN_g8, DynamicFormat(8,8,0,8,0,8,0,8,0,PF::Alpha));
-	add_pair(PIXMAN_g8, DynamicFormat(8,8,0,8,0,8,0,0,0,PF::NoAlpha));
-
-	formats_initialized = true;
-}
+		{ DynamicFormat(16,5,11,6,5,5,0,0,0,PF::NoAlpha).code_alpha(), PIXMAN_r5g6b5 },
+		{ DynamicFormat(16,5,0,6,5,5,11,0,0,PF::NoAlpha).code_alpha(), PIXMAN_b5g6r5 },
+		{ DynamicFormat(16,5,10,5,5,5,0,1,15,PF::Alpha).code_alpha(), PIXMAN_a1r5g5b5 },
+		{ DynamicFormat(16,5,10,5,5,5,0,0,0,PF::NoAlpha).code_alpha(), PIXMAN_x1r5g5b5 },
+		{ DynamicFormat(16,5,0,5,5,5,10,1,15,PF::Alpha).code_alpha(), PIXMAN_a1b5g5r5 },
+		{ DynamicFormat(16,5,0,5,5,5,10,0,0,PF::NoAlpha).code_alpha(), PIXMAN_x1b5g5r5 },
+		{ DynamicFormat(16,4,8,4,4,4,0,4,12,PF::Alpha).code_alpha(), PIXMAN_a4r4g4b4 },
+		{ DynamicFormat(16,4,8,4,4,4,0,0,0,PF::NoAlpha).code_alpha(), PIXMAN_x4r4g4b4 },
+		{ DynamicFormat(16,4,0,4,4,4,8,4,12,PF::Alpha).code_alpha(), PIXMAN_a4b4g4r4 },
+		{ DynamicFormat(16,4,0,4,4,4,8,0,0,PF::NoAlpha).code_alpha(), PIXMAN_x4b4g4r4 },
+		{ DynamicFormat(8,8,0,8,0,8,0,8,0,PF::Alpha).code_alpha(), PIXMAN_g8 },
+		{ DynamicFormat(8,8,0,8,0,8,0,0,0,PF::NoAlpha).code_alpha(), PIXMAN_g8 }
+}};
 
 pixman_format_code_t Bitmap::find_format(const DynamicFormat& format) {
-	initialize_formats();
-	int dcode = format.code_alpha();
-	int pcode = formats_map[dcode];
-	if (pcode == 0) {
+	auto dcode = format.code_alpha();
+	auto iter = std::find_if(formats_map.begin(), formats_map.end(), [dcode](const auto& p) { return p.first == dcode; });
+	if (iter == formats_map.end()) {
 		// To fix add a pair to initialize_formats that maps the outputted
 		// DynamicFormat to a pixman format
 		Output::Error("%s\nDynamicFormat(%d, %d, %d, %d, %d, %d, %d, %d, %d, %s)",
@@ -447,7 +435,7 @@ pixman_format_code_t Bitmap::find_format(const DynamicFormat& format) {
 		format.a.bits, format.a.shift,
 		format.alpha_type == PF::Alpha ? "PF::Alpha" : "PF::NoAlpha");
 	}
-	return (pixman_format_code_t) pcode;
+	return iter->second;
 }
 
 DynamicFormat Bitmap::pixel_format;
@@ -733,14 +721,15 @@ void Bitmap::WaverBlit(int x, int y, double zoom_x, double zoom_y, Bitmap const&
 
 	int height = static_cast<int>(std::floor(src_rect.height * zoom_y));
 	int width  = static_cast<int>(std::floor(src_rect.width * zoom_x));
-	for (int i = 0; i < height; i++) {
+	const auto yclip = y < 0 ? -y : 0;
+	const auto yend = std::min(height, this->height() - y);
+	for (int i = yclip; i < yend; i++) {
 		int dy = y + i;
-		if (dy < 0)
-			continue;
-		if (dy >= this->height())
-			break;
-		int sy = static_cast<int>(std::floor((i+0.5) / zoom_y));
-		int offset = (int) (2 * zoom_x * depth * sin((phase + (src_rect.y + sy) * 11.2) * 3.14159 / 180));
+		// RPG_RT starts the effect from the top of the screen even if the image is clipped. The result
+		// is that moving images which cross the top of the screen can appear to go too fast or too slow
+		// in RPT_RT. The (i - yclip) is RPG_RT compatible behavior. Just (i) would be more correct.
+		const double sy = (i - yclip) * (2 * M_PI) / (32.0 * zoom_y);
+		const int offset = 2 * zoom_x * depth * std::sin(phase + sy);
 
 		pixman_image_composite32(src.GetOperator(mask),
 								 src.bitmap, mask, bitmap,
@@ -814,9 +803,13 @@ void Bitmap::ClearRect(Rect const& dst_rect) {
 }
 
 // Hard light lookup table mapping source color to destination color
-static uint8_t hard_light_lookup[256][256];
+// FIXME: Replace this with std::array<std::array<uint8_t,256>,256> when we have C++17
+struct HardLightTable {
+	uint8_t table[256][256] = {};
+};
 
-static void make_hard_light_lookup() {
+static constexpr HardLightTable make_hard_light_lookup() {
+	HardLightTable hl;
 	for (int i = 0; i < 256; ++i) {
 		for (int j = 0; j < 256; ++j) {
 			int res = 0;
@@ -824,10 +817,13 @@ static void make_hard_light_lookup() {
 				res = (2 * i * j) / 255;
 			else
 				res = 255 - 2 * (255 - i) * (255 - j) / 255;
-			hard_light_lookup[i][j] = res > 255 ? 255 : res < 0 ? 0 : res;
+			hl.table[i][j] = res > 255 ? 255 : res < 0 ? 0 : res;
 		}
 	}
+	return hl;
 }
+
+constexpr auto hard_light = make_hard_light_lookup();
 
 // Saturation Tone Inline: Changes a pixel saturation
 static inline void saturation_tone(uint32_t &src_pixel, int saturation, int rs, int gs, int bs, int as) {
@@ -853,10 +849,10 @@ static inline void saturation_tone(uint32_t &src_pixel, int saturation, int rs, 
 }
 
 // Color Tone Inline: Changes color of a pixel by hard light table
-static inline void color_tone(uint32_t &src_pixel, Tone tone, uint8_t hard_light_lookup[256][256], int rs, int gs, int bs, int as) {
-	src_pixel = ((uint32_t)hard_light_lookup[tone.red][(src_pixel >> rs) & 0xFF] << rs)
-		| ((uint32_t)hard_light_lookup[tone.green][(src_pixel >> gs) & 0xFF] << gs)
-		| ((uint32_t)hard_light_lookup[tone.blue][(src_pixel >> bs) & 0xFF] << bs)
+static inline void color_tone(uint32_t &src_pixel, Tone tone, int rs, int gs, int bs, int as) {
+	src_pixel = ((uint32_t)hard_light.table[tone.red][(src_pixel >> rs) & 0xFF] << rs)
+		| ((uint32_t)hard_light.table[tone.green][(src_pixel >> gs) & 0xFF] << gs)
+		| ((uint32_t)hard_light.table[tone.blue][(src_pixel >> bs) & 0xFF] << bs)
 		| ((uint32_t)((src_pixel >> as) & 0xFF) << as);
 }
 
@@ -881,13 +877,6 @@ void Bitmap::ToneBlit(int x, int y, Bitmap const& src, Rect const& src_rect, con
 		x, y,
 		src_rect.width, src_rect.height);
 
-	// To implement Saturation and Color:
-	static bool index_made = false;
-	if (!index_made) {
-		make_hard_light_lookup();
-		index_made = true;
-	}
-
 	int as = pixel_format.a.shift;
 	int rs = pixel_format.r.shift;
 	int gs = pixel_format.g.shift;
@@ -911,7 +900,7 @@ void Bitmap::ToneBlit(int x, int y, Bitmap const& src, Rect const& src_rect, con
 						continue;
 
 					saturation_tone(pixels[j], sat, rs, gs, bs, as);
-					color_tone(pixels[j], tone, hard_light_lookup, rs, gs, bs, as);
+					color_tone(pixels[j], tone, rs, gs, bs, as);
 				}
 			}
 		}
@@ -920,7 +909,7 @@ void Bitmap::ToneBlit(int x, int y, Bitmap const& src, Rect const& src_rect, con
 				pixels += next_row;
 				for (uint16_t j = 0; j < limit_width; ++j) {
 					saturation_tone(pixels[j], sat, rs, gs, bs, as);
-					color_tone(pixels[j], tone, hard_light_lookup, rs, gs, bs, as);
+					color_tone(pixels[j], tone, rs, gs, bs, as);
 				}
 			}
 		}
@@ -960,7 +949,7 @@ void Bitmap::ToneBlit(int x, int y, Bitmap const& src, Rect const& src_rect, con
 					if ((uint8_t)((pixels[j] >> as) & 0xFF) == 0)
 						continue;
 
-					color_tone(pixels[j], tone, hard_light_lookup, rs, gs, bs, as);
+					color_tone(pixels[j], tone, rs, gs, bs, as);
 				}
 			}
 		}
@@ -968,7 +957,7 @@ void Bitmap::ToneBlit(int x, int y, Bitmap const& src, Rect const& src_rect, con
 			for (uint16_t i = 0; i < limit_height; ++i) {
 				pixels += next_row;
 				for (uint16_t j = 0; j < limit_width; ++j) {
-					color_tone(pixels[j], tone, hard_light_lookup, rs, gs, bs, as);
+					color_tone(pixels[j], tone, rs, gs, bs, as);
 				}
 			}
 		}
@@ -995,7 +984,7 @@ void Bitmap::BlendBlit(int x, int y, Bitmap const& src, Rect const& src_rect, co
 	pixman_color_t tcolor = PixmanColor(color);
 	pixman_image_t* timage = pixman_image_create_solid_fill(&tcolor);
 
-	pixman_image_composite32(src.GetOperator(),
+	pixman_image_composite32(PIXMAN_OP_OVER,
 							 timage, src.bitmap, bitmap,
 							 0, 0,
 							 src_rect.x, src_rect.y,

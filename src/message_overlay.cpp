@@ -19,38 +19,22 @@
 
 #include "message_overlay.h"
 #include "player.h"
-#include "graphics.h"
 #include "bitmap.h"
 #include "game_message.h"
+#include "drawable_mgr.h"
 
-MessageOverlay::MessageOverlay() :
-	type(TypeOverlay),
-	z(Priority_Overlay),
-	ox(0),
-	oy(0),
-	text_height(12),
-	message_max(10),
-	dirty(false),
-	counter(0),
-	show_all(false) {
+MessageOverlay::MessageOverlay() : Drawable(TypeOverlay, Priority_Overlay, true)
+{
 	// Graphics::RegisterDrawable is in the Update function
 }
 
-MessageOverlay::~MessageOverlay() {
-	Graphics::RemoveDrawable(this);
-}
-
-bool MessageOverlay::IsGlobal() const {
-	return true;
-}
-
-void MessageOverlay::Draw() {
+void MessageOverlay::Draw(Bitmap& dst) {
 	if (!IsAnyMessageVisible() && !show_all) {
 		// Don't render overlay when no message visible
 		return;
 	}
 
-	DisplayUi->GetDisplaySurface()->Blit(ox, oy, *bitmap, bitmap->GetRect(), 255);
+	dst.Blit(ox, oy, *bitmap, bitmap->GetRect(), 255);
 
 	if (!dirty) return;
 
@@ -78,14 +62,6 @@ void MessageOverlay::Draw() {
 	}
 
 	dirty = false;
-}
-
-int MessageOverlay::GetZ() const {
-	return z;
-}
-
-DrawableType MessageOverlay::GetType() const {
-	return type;
 }
 
 void MessageOverlay::AddMessage(const std::string& message, Color color) {
@@ -130,7 +106,7 @@ void MessageOverlay::Update() {
 		// Initialisation is delayed because the display is not ready on startup
 		black = Bitmap::Create(DisplayUi->GetWidth(), text_height, Color(0, 0, 0, 255));
 		bitmap = Bitmap::Create(DisplayUi->GetWidth(), text_height * message_max, true);
-		Graphics::RegisterDrawable(this);
+		DrawableMgr::Register(this);
 	}
 
 	if (IsAnyMessageVisible()) {
@@ -158,6 +134,7 @@ bool MessageOverlay::IsAnyMessageVisible() const {
 }
 
 MessageOverlayItem::MessageOverlayItem(const std::string& text, Color color) :
-	text(text), color(color), hidden(false), repeat_count(0) {
+	text(text), color(color)
+{
 	// no-op
 }

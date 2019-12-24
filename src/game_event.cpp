@@ -30,6 +30,7 @@
 #include "main_data.h"
 #include "player.h"
 #include "utils.h"
+#include "output.h"
 #include <cmath>
 #include <cassert>
 
@@ -50,7 +51,7 @@ Game_Event::Game_Event(int map_id, const RPG::Event& event, const RPG::SaveMapEv
 	_data_copy(this->data()),
 	event(event)
 {
-	// Savegames have 0 for the mapid for compatibility with RPG_RT.
+	// 2k Savegames have 0 for the mapid for compatibility with RPG_RT.
 	SetMapId(map_id);
 
 	this->event.ID = data()->ID;
@@ -151,10 +152,17 @@ void Game_Event::SetupFromSave(const RPG::EventPage* new_page) {
 		auto& state = data()->parallel_event_execstate;
 		// RPG_RT Savegames have empty stacks for parallel events.
 		// We are LSD compatible but don't load these into interpreter.
-		if (!state.stack.empty() && !state.stack.front().commands.empty()) {
+		bool has_state = (!state.stack.empty() && !state.stack.front().commands.empty());
+		// If the page changed before save but the event never updated,
+		// there will be not stack but we still need to create an interpreter
+		// for the event page commands.
+		if (has_state || !page->event_commands.empty()) {
 			if (!interpreter) {
 				interpreter.reset(new Game_Interpreter_Map());
 			}
+		}
+
+		if (has_state) {
 			interpreter->SetState(state);
 		}
 	}
@@ -197,45 +205,45 @@ void Game_Event::Refresh(bool from_save) {
 
 bool Game_Event::AreConditionsMet(const RPG::EventPage& page) {
 	// First switch (A)
-	if (page.condition.flags.switch_a && !Game_Switches.Get(page.condition.switch_a_id)) {
+	if (page.condition.flags.switch_a && !Main_Data::game_switches->Get(page.condition.switch_a_id)) {
 		return false;
 	}
 
 	// Second switch (B)
-	if (page.condition.flags.switch_b && !Game_Switches.Get(page.condition.switch_b_id)) {
+	if (page.condition.flags.switch_b && !Main_Data::game_switches->Get(page.condition.switch_b_id)) {
 		return false;
 	}
 
 	// Variable
 	if (Player::IsRPG2k()) {
-		if (page.condition.flags.variable && !(Game_Variables.Get(page.condition.variable_id) >= page.condition.variable_value)) {
+		if (page.condition.flags.variable && !(Main_Data::game_variables->Get(page.condition.variable_id) >= page.condition.variable_value)) {
 			return false;
 		}
 	} else {
 		if (page.condition.flags.variable) {
 			switch (page.condition.compare_operator) {
 			case 0: // ==
-				if (!(Game_Variables.Get(page.condition.variable_id) == page.condition.variable_value))
+				if (!(Main_Data::game_variables->Get(page.condition.variable_id) == page.condition.variable_value))
 					return false;
 				break;
 			case 1: // >=
-				if (!(Game_Variables.Get(page.condition.variable_id) >= page.condition.variable_value))
+				if (!(Main_Data::game_variables->Get(page.condition.variable_id) >= page.condition.variable_value))
 					return false;
 				break;
 			case 2: // <=
-				if (!(Game_Variables.Get(page.condition.variable_id) <= page.condition.variable_value))
+				if (!(Main_Data::game_variables->Get(page.condition.variable_id) <= page.condition.variable_value))
 					return false;
 				break;
 			case 3: // >
-				if (!(Game_Variables.Get(page.condition.variable_id) > page.condition.variable_value))
+				if (!(Main_Data::game_variables->Get(page.condition.variable_id) > page.condition.variable_value))
 					return false;
 				break;
 			case 4: // <
-				if (!(Game_Variables.Get(page.condition.variable_id) < page.condition.variable_value))
+				if (!(Main_Data::game_variables->Get(page.condition.variable_id) < page.condition.variable_value))
 					return false;
 				break;
 			case 5: // !=
-				if (!(Game_Variables.Get(page.condition.variable_id) != page.condition.variable_value))
+				if (!(Main_Data::game_variables->Get(page.condition.variable_id) != page.condition.variable_value))
 					return false;
 				break;
 			}
@@ -570,8 +578,8 @@ const RPG::SaveMapEvent& Game_Event::GetSaveData() {
 			state = interpreter->GetState();
 		}
 
-		if (state.stack.empty()) {
-			// RPG_RT always stores an empty stack frame for parallel events.
+		if (state.stack.empty() && page->event_commands.empty()) {
+			// RPG_RT always stores an empty stack frame for empty parallel events.
 			RPG::SaveEventExecFrame frame;
 			frame.event_id = GetId();
 			state.stack.push_back(std::move(frame));

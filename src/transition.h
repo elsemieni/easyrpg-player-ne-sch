@@ -24,6 +24,7 @@
 #include "drawable.h"
 #include "system.h"
 #include "scene.h"
+#include "color.h"
 
 
 /**
@@ -36,8 +37,8 @@ public:
 		TransitionFadeIn,
 		TransitionFadeOut,
 		TransitionRandomBlocks,
-		TransitionRandomBlocksUp,
 		TransitionRandomBlocksDown,
+		TransitionRandomBlocksUp,
 		TransitionBlindOpen,
 		TransitionBlindClose,
 		TransitionVerticalStripesIn,
@@ -73,11 +74,7 @@ public:
 	};
 
 	Transition();
-	~Transition() override;
 
-	int GetZ() const override;
-	DrawableType GetType() const override;
-	
 	/**
 	 * Defines a screen transition.
 	 *
@@ -90,17 +87,13 @@ public:
 
 	void AppendBefore(Color color, int duration, int iterations);
 
-	void Draw() override;
+	void Draw(Bitmap& dst) override;
 	void Update();
-	bool IsGlobal() const override;
 
 	bool IsActive();
 	bool IsErased();
 
 private:
-
-	static const int z = Priority_Transition;
-	static const DrawableType type = TypeTransition;
 	const uint32_t size_random_blocks = 4;
 
 	BitmapRef black_screen;
@@ -112,13 +105,13 @@ private:
 
 	TransitionType transition_type;
 	Scene *scene;
-	int current_frame;
-	int total_frames;
+	int current_frame = -1;
+	int total_frames = -2;
 	bool screen_erased = false;
 
 	Color flash_color;
-	int flash_duration;
-	int flash_iterations;
+	int flash_duration = 0;
+	int flash_iterations = 0;
 
 	std::vector<int> zoom_position;
 	std::vector<uint32_t> random_blocks;
@@ -126,5 +119,13 @@ private:
 
 	void SetAttributesTransitions();
 };
+
+inline bool Transition::IsActive() {
+	return current_frame <= total_frames;
+}
+
+inline bool Transition::IsErased() {
+	return screen_erased && !IsActive();
+}
 
 #endif

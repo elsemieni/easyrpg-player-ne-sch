@@ -45,14 +45,15 @@ libeasyrpg_player_a_SOURCES = \
 	src/bitmap.cpp \
 	src/bitmap.h \
 	src/bitmapfont.h \
-	src/bitmapfont_wqy.cpp \
-	src/bitmapfont_ttyp0.cpp \
-	src/bitmapfont_rmg2000.cpp \
+	src/bitmapfont_glyph.h \
+	src/bitmapfont_rmg2000.h \
+	src/bitmapfont_ttyp0.h \
+	src/bitmapfont_wqy.h \
 	src/bitmap_hslrgb.h \
 	src/cache.cpp \
 	src/cache.h \
-	src/color.cpp \
 	src/color.h \
+	src/compiler.h \
 	src/decoder_fmmidi.cpp \
 	src/decoder_fmmidi.h \
 	#Netherware fluidsynth support =======================================
@@ -78,6 +79,10 @@ libeasyrpg_player_a_SOURCES = \
 	src/docmain.h \
 	src/drawable.cpp \
 	src/drawable.h \
+	src/drawable_list.cpp \
+	src/drawable_list.h \
+	src/drawable_mgr.cpp \
+	src/drawable_mgr.h \
 	src/exe_reader.cpp \
 	src/exe_reader.h \
 	src/exfont.h \
@@ -177,6 +182,8 @@ libeasyrpg_player_a_SOURCES = \
 	src/options.h \
 	src/output.cpp \
 	src/output.h \
+	src/pending_message.h \
+	src/pending_message.cpp \
 	src/picojson.h \
 	src/pixel_format.h \
 	src/plane.cpp \
@@ -249,8 +256,8 @@ libeasyrpg_player_a_SOURCES = \
 	src/sdl2_ui.h \
 	src/sdl_ui.cpp \
 	src/sdl_ui.h \
-	src/shinonome_gothic.cpp \
-	src/shinonome_mincho.cpp \
+	src/shinonome_gothic.h \
+	src/shinonome_mincho.h \
 	src/sprite.cpp \
 	src/sprite.h \
 	src/sprite_airshipshadow.h \
@@ -277,7 +284,6 @@ libeasyrpg_player_a_SOURCES = \
 	src/tilemap.h \
 	src/tilemap_layer.cpp \
 	src/tilemap_layer.h \
-	src/tone.cpp \
 	src/tone.h \
 	src/transform.h \
 	src/transition.cpp \
@@ -451,30 +457,25 @@ endif
 # doxygen
 @DX_RULES@
 
-# FIXME make filefinder work without external scripting
-check_PROGRAMS = directorytree output rtp utils wordwrap utf
-TESTS = directorytree output rtp utils wordwrap utf
-directorytree_SOURCES = tests/directorytree.cpp
-directorytree_CXXFLAGS = $(libeasyrpg_player_a_CXXFLAGS)
-directorytree_LDADD = $(easyrpg_player_LDADD)
-#filefinder_SOURCES = tests/filefinder.cpp
-#filefinder_CXXFLAGS = $(libeasyrpg_player_a_CXXFLAGS)
-#filefinder_LDADD = $(easyrpg_player_LDADD)
-output_SOURCES = tests/output.cpp
-output_CXXFLAGS = $(libeasyrpg_player_a_CXXFLAGS)
-output_LDADD = $(easyrpg_player_LDADD)
-rtp_SOURCES = tests/rtp.cpp tests/doctest.h
-rtp_CXXFLAGS = $(libeasyrpg_player_a_CXXFLAGS)
-rtp_LDADD = $(easyrpg_player_LDADD)
-utils_SOURCES = tests/utils.cpp
-utils_CXXFLAGS = $(libeasyrpg_player_a_CXXFLAGS)
-utils_LDADD = $(easyrpg_player_LDADD)
-wordwrap_SOURCES = tests/wordwrap.cpp tests/doctest.h
-wordwrap_CXXFLAGS = $(libeasyrpg_player_a_CXXFLAGS)
-wordwrap_LDADD = $(easyrpg_player_LDADD)
-utf_SOURCES = tests/utf.cpp tests/doctest.h
-utf_CXXFLAGS = $(libeasyrpg_player_a_CXXFLAGS)
-utf_LDADD = $(easyrpg_player_LDADD)
+check_PROGRAMS = test_runner
+test_runner_SOURCES = \
+	tests/doctest.h \
+	tests/test_main.cpp \
+	tests/bitmapfont.cpp \
+	tests/directorytree.cpp \
+	tests/filefinder.cpp \
+	tests/output.cpp \
+	tests/rtp.cpp \
+	tests/utils.cpp \
+	tests/utf.cpp \
+	tests/wordwrap.cpp
+test_runner_CXXFLAGS = \
+	$(libeasyrpg_player_a_CXXFLAGS) -DEP_TEST_PATH=\"$(srcdir)/tests\"
+test_runner_LDADD = \
+	$(easyrpg_player_LDADD)
+
+check-local:
+	$(AM_V_at)./test_runner
 
 # Some tests will create this file
 # make distcheck will fail if it is not cleaned after running these tests

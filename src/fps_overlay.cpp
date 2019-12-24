@@ -23,20 +23,12 @@
 #include "bitmap.h"
 #include "input.h"
 #include "font.h"
+#include "drawable_mgr.h"
 
 FpsOverlay::FpsOverlay() :
-	type(TypeOverlay),
-	z(Priority_Overlay + 100) {
-
-	Graphics::RegisterDrawable(this);
-}
-
-FpsOverlay::~FpsOverlay() {
-	Graphics::RemoveDrawable(this);
-}
-
-bool FpsOverlay::IsGlobal() const {
-	return true;
+	Drawable(TypeOverlay, Priority_Overlay + 100, true)
+{
+	DrawableMgr::Register(this);
 }
 
 void FpsOverlay::Update() {
@@ -48,7 +40,8 @@ void FpsOverlay::Update() {
 	}
 }
 
-void FpsOverlay::Draw() {
+void FpsOverlay::Draw(Bitmap& dst) {
+	// FIXME: Break this dependency on DisplayUi
 	bool fps_draw = (
 #ifndef EMSCRIPTEN
 		DisplayUi->IsFullscreen() &&
@@ -73,7 +66,7 @@ void FpsOverlay::Draw() {
 			fps_dirty = false;
 		}
 
-		DisplayUi->GetDisplaySurface()->Blit(1, 2, *fps_bitmap, fps_rect, 255);
+		dst.Blit(1, 2, *fps_bitmap, fps_rect, 255);
 	}
 
 	// Always drawn when speedup is on independent of FPS
@@ -97,16 +90,8 @@ void FpsOverlay::Draw() {
 		}
 
 		int dwidth = DisplayUi->GetDisplaySurface()->GetWidth();
-		DisplayUi->GetDisplaySurface()->Blit(dwidth - speedup_rect.width - 1, 2, *speedup_bitmap, speedup_rect, 255);
+		dst.Blit(dwidth - speedup_rect.width - 1, 2, *speedup_bitmap, speedup_rect, 255);
 	}
-}
-
-int FpsOverlay::GetZ() const {
-	return z;
-}
-
-DrawableType FpsOverlay::GetType() const {
-	return type;
 }
 
 int FpsOverlay::GetFps() const {

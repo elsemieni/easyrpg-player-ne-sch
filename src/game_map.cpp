@@ -32,6 +32,7 @@
 #include "game_temp.h"
 #include "game_player.h"
 #include "game_party.h"
+#include "game_message.h"
 #include "lmu_reader.h"
 #include "reader_lcf.h"
 #include "map_data.h"
@@ -43,7 +44,6 @@
 #include "player.h"
 #include "input.h"
 #include "utils.h"
-#include "window_message.h"
 #include "scope_guard.h"
 
 namespace {
@@ -74,8 +74,6 @@ namespace {
 	std::vector<Game_Character*> pending;
 
 
-	bool pan_wait;
-
 	int last_map_id;
 
 	RPG::Chipset* chipset;
@@ -85,6 +83,10 @@ namespace {
 	//FIXME: Find a better way to do this.
 	bool reset_panorama_x_on_next_init = true;
 	bool reset_panorama_y_on_next_init = true;
+
+	// How much we scrolled during this frame.
+	int scrolled_right = 0;
+	int scrolled_down = 0;
 }
 
 void Game_Map::OnContinueFromBattle() {
@@ -132,7 +134,6 @@ void Game_Map::Init() {
 	vehicles.push_back(std::make_shared<Game_Vehicle>(&Main_Data::game_data.ship_location));
 	vehicles.push_back(std::make_shared<Game_Vehicle>(&Main_Data::game_data.airship_location));
 
-	pan_wait = false;
 	location.pan_state = RPG::SavePartyLocation::PanState_follow;
 	location.pan_speed = default_pan_speed;
 	location.pan_finish_x = default_pan_x;
@@ -339,8 +340,6 @@ void Game_Map::SetupCommon(int _id, bool is_load_savegame) {
 	if (Main_Data::game_player->IsMoveRouteOverwritten())
 		pending.push_back(Main_Data::game_player.get());
 
-	pan_wait = false;
-
 	auto map_save_count = map->save_count;
 	if (Player::IsRPG2k3() && map->save_count_2k3e > 0) {
 		map_save_count =  map->save_count_2k3e;
@@ -429,6 +428,7 @@ void Game_Map::ScrollRight(int distance) {
 	int x = map_info.position_x;
 	AddScreenX(x, distance);
 	map_info.position_x = x;
+	scrolled_right += distance;
 	if (distance == 0) {
 		return;
 	}
@@ -444,6 +444,7 @@ void Game_Map::ScrollDown(int distance) {
 	int y = map_info.position_y;
 	AddScreenY(y, distance);
 	map_info.position_y = y;
+	scrolled_down += distance;
 	if (distance == 0) {
 		return;
 	}
@@ -480,6 +481,14 @@ void Game_Map::AddScreenY(int& screen_y, int& inc) {
 	} else {
 		ClampingAdd(0, map_height - SCREEN_HEIGHT, screen_y, inc);
 	}
+}
+
+int Game_Map::GetScrolledRight() {
+	return scrolled_right;
+}
+
+int Game_Map::GetScrolledDown() {
+	return scrolled_down;
 }
 
 bool Game_Map::IsValid(int x, int y) {
@@ -945,7 +954,10 @@ int Game_Map::CheckEvent(int x, int y) {
 	return 0;
 }
 
-void Game_Map::Update(MapUpdateAsyncContext& actx, Window_Message& message, bool is_preupdate) {
+void Game_Map::Update(MapUpdateAsyncContext& actx, bool is_preupdate) {
+	scrolled_right = 0;
+	scrolled_down = 0;
+
 	if (GetNeedRefresh() != Refresh_None) Refresh();
 
 	if (!actx.IsActive()) {
@@ -982,13 +994,13 @@ void Game_Map::Update(MapUpdateAsyncContext& actx, Window_Message& message, bool
 			}
 		}
 
-		message.Update();
+		Game_Message::Update();
 		Main_Data::game_party->UpdateTimers();
 		Main_Data::game_screen->Update();
 	}
 
 	if (!actx.IsActive() || actx.IsForegroundEvent()) {
-		if (!UpdateForegroundEvents(actx, message)) {
+		if (!UpdateForegroundEvents(actx)) {
 			// Suspend due to foreground event async op ...
 			return;
 		}
@@ -1068,13 +1080,11 @@ bool Game_Map::UpdateMapEvents(MapUpdateAsyncContext& actx) {
 	return true;
 }
 
-bool Game_Map::UpdateForegroundEvents(MapUpdateAsyncContext& actx, Window_Message& message) {
+bool Game_Map::UpdateForegroundEvents(MapUpdateAsyncContext& actx) {
 	auto& interp = GetInterpreter();
 
 	// If we resume from async op, we don't clear the loop index.
 	const bool resume_fg = actx.IsForegroundEvent();
-
-	auto sg = makeScopeGuard([&]() { message.UpdatePostEvents(); });
 
 	// Run any event loaded from last frame.
 	interp.Update(!resume_fg);
@@ -1577,7 +1587,7 @@ void Game_Map::UnlockPan() {
 	location.pan_state = RPG::SavePartyLocation::PanState_follow;
 }
 
-void Game_Map::StartPan(int direction, int distance, int speed, bool wait) {
+void Game_Map::StartPan(int direction, int distance, int speed) {
 	distance *= SCREEN_TILE_SIZE;
 
 	if (direction == PanUp) {
@@ -1595,14 +1605,21 @@ void Game_Map::StartPan(int direction, int distance, int speed, bool wait) {
 	}
 
 	location.pan_speed = 2 << speed;
-	pan_wait = wait;
 }
 
-void Game_Map::ResetPan(int speed, bool wait) {
+void Game_Map::ResetPan(int speed) {
 	location.pan_finish_x = default_pan_x;
 	location.pan_finish_y = default_pan_y;
 	location.pan_speed = 2 << speed;
-	pan_wait = wait;
+}
+
+int Game_Map::GetPanWait() {
+	const auto distance = std::max(
+			std::abs(location.pan_current_x - location.pan_finish_x),
+			std::abs(location.pan_current_y - location.pan_finish_y));
+	const auto speed = location.pan_speed;
+	assert(speed > 0);
+	return distance / speed + (distance % speed != 0);
 }
 
 void Game_Map::UpdatePan() {
@@ -1624,10 +1641,8 @@ void Game_Map::UpdatePan() {
 	Game_Map::AddScreenX(screen_x, dx);
 	Game_Map::AddScreenY(screen_y, dy);
 
-	// If we hit the edge of the map before pan finishes, the
-	// pan converts from waiting to non-waiting.
+	// If we hit the edge of the map before pan finishes.
 	if (dx == 0 && dy == 0) {
-		pan_wait = false;
 		return;
 	}
 
@@ -1640,10 +1655,6 @@ void Game_Map::UpdatePan() {
 
 bool Game_Map::IsPanActive() {
 	return location.pan_current_x != location.pan_finish_x || location.pan_current_y != location.pan_finish_y;
-}
-
-bool Game_Map::IsPanWaiting() {
-	return IsPanActive() && pan_wait;
 }
 
 bool Game_Map::IsPanLocked() {

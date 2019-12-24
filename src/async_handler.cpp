@@ -39,12 +39,12 @@
 //#define EP_DEBUG_SIMULATE_ASYNC
 
 namespace {
-	std::map<std::string, FileRequestAsync> async_requests;
-	std::map<std::string, std::string> file_mapping;
+	std::unordered_map<std::string, FileRequestAsync> async_requests;
+	std::unordered_map<std::string, std::string> file_mapping;
 	int next_id = 0;
 
 	FileRequestAsync* GetRequest(const std::string& path) {
-		std::map<std::string, FileRequestAsync>::iterator it = async_requests.find(path);
+		auto it = async_requests.find(path);
 
 		if (it != async_requests.end()) {
 			return &(it->second);
@@ -52,8 +52,11 @@ namespace {
 		return nullptr;
 	}
 
-	void RegisterRequest(const std::string& path, const FileRequestAsync& request) {
-		async_requests[path] = request;
+	FileRequestAsync* RegisterRequest(std::string path, std::string directory, std::string file)
+	{
+		auto req = FileRequestAsync(path, std::move(directory), std::move(file));
+		auto p = async_requests.emplace(std::make_pair(std::move(path), std::move(req)));
+		return &p.first->second;
 	}
 
 	FileRequestBinding CreatePending() {
@@ -91,20 +94,17 @@ void AsyncHandler::CreateRequestMapping(const std::string& file) {
 }
 
 FileRequestAsync* AsyncHandler::RequestFile(const std::string& folder_name, const std::string& file_name) {
-	std::string path = FileFinder::MakePath(folder_name, file_name);
+	auto path = FileFinder::MakePath(folder_name, file_name);
 
-	FileRequestAsync* request = GetRequest(path);
+	auto* request = GetRequest(path);
 
 	if (request) {
 		return request;
 	}
 
-	FileRequestAsync req(folder_name, file_name);
-	RegisterRequest(path, req);
-
 	//Output::Debug("Waiting for %s", path.c_str());
 
-	return GetRequest(path);
+	return RegisterRequest(std::move(path), folder_name, file_name);
 }
 
 FileRequestAsync* AsyncHandler::RequestFile(const std::string& file_name) {
@@ -138,34 +138,12 @@ bool AsyncHandler::IsGraphicFilePending() {
 	return IsFilePending(false, true);
 }
 
-FileRequestAsync::FileRequestAsync(const std::string& folder_name, const std::string& file_name) :
-	directory(folder_name),
-	file(file_name) {
-	this->path = path = FileFinder::MakePath(folder_name, file_name);
-	this->important = false;
-	this->graphic = false;
-
-	state = State_WaitForStart;
-}
-
-FileRequestAsync::FileRequestAsync() {
-}
-
-bool FileRequestAsync::IsReady() const {
-	return state == State_DoneSuccess || state == State_DoneFailure;
-}
-
-bool FileRequestAsync::IsImportantFile() const {
-	return important;
-}
-
-void FileRequestAsync::SetImportantFile(bool important) {
-	this->important = important;
-}
-
-bool FileRequestAsync::IsGraphicFile() const {
-	return graphic;
-}
+FileRequestAsync::FileRequestAsync(std::string path, std::string directory, std::string file) :
+	directory(std::move(directory)),
+	file(std::move(file)),
+	path(std::move(path)),
+	state(State_WaitForStart)
+{ }
 
 void FileRequestAsync::SetGraphicFile(bool graphic) {
 	this->graphic = graphic;
@@ -252,10 +230,6 @@ void FileRequestAsync::UpdateProgress() {
 #endif
 }
 
-const std::string& FileRequestAsync::GetPath() const {
-	return path;
-}
-
 FileRequestBinding FileRequestAsync::Bind(void(*func)(FileRequestResult*)) {
 	FileRequestBinding pending = CreatePending();
 
@@ -273,10 +247,7 @@ FileRequestBinding FileRequestAsync::Bind(std::function<void(FileRequestResult*)
 }
 
 void FileRequestAsync::CallListeners(bool success) {
-	FileRequestResult result;
-	result.directory = directory;
-	result.file = file;
-	result.success = success;
+	FileRequestResult result { directory, file, success };
 
 	for (auto& listener : listeners) {
 		if (!listener.first.expired()) {

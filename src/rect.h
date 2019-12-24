@@ -19,6 +19,7 @@
 #define EP_RECT_H
 
 #include <tuple>
+#include <ostream>
 
 /**
  * Rect.
@@ -28,7 +29,7 @@ public:
 	/**
 	 * Constructor. All values are set to 0.
 	 */
-	Rect();
+	constexpr Rect() = default;
 
 	/**
 	 * Constructor.
@@ -38,17 +39,7 @@ public:
 	 * @param width initial width.
 	 * @param height initial height.
 	 */
-	Rect(int x, int y, int width, int height);
-
-	/**
-	 * Sets all rect values simultaneously.
-	 *
-	 * @param x new x.
-	 * @param y new y.
-	 * @param width new width.
-	 * @param height new height.
-	 */
-	void Set(int x, int y, int width, int height);
+	constexpr Rect(int x, int y, int width, int height);
 
 	/**
 	 * Adjusts rect bounds, trimming it so it is contained
@@ -99,16 +90,16 @@ public:
 	Rect GetSubRect(Rect const& rect);
 
 	/** X coordinate. */
-	int x;
+	int x = 0;
 
 	/** Y coordinate. */
-	int y;
+	int y = 0;
 
 	/** Width. */
-	int width;
+	int width = 0;
 
 	/** Height. */
-	int height;
+	int height = 0;
 
 	/**
 	 * Adjusts a source/destination pair of rectangles.
@@ -149,6 +140,28 @@ inline bool operator<(const Rect &l, const Rect& r) {
 	return
 		std::tie(l.x, l.y, l.width, l.height) <
 		std::tie(r.x, r.y, r.width, r.height);
+}
+
+inline std::ostream& operator<<(std::ostream& os, Rect r) {
+	os << "Rect{" << r.x << "," << r.y << "," << r.width << "," << r.height << "}";
+	return os;
+}
+
+constexpr Rect::Rect(int x, int y, int width, int height)
+	: x(x), y(y), width(width), height(height) { }
+
+inline void Rect::Double() {
+	x *= 2;
+	y *= 2;
+	width *= 2;
+	height *= 2;
+}
+
+inline void Rect::Halve() {
+	x /= 2;
+	y /= 2;
+	width /= 2;
+	height /= 2;
 }
 
 #endif

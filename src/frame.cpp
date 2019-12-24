@@ -18,14 +18,15 @@
 // Headers
 #include <string>
 #include <vector>
-#include "baseui.h"
 #include "cache.h"
 #include "bitmap.h"
-#include "graphics.h"
 #include "main_data.h"
 #include "frame.h"
+#include "drawable_mgr.h"
 
-Frame::Frame() {
+Frame::Frame() :
+	Drawable(TypeFrame, Priority_Frame, false)
+{
 	if (!Data::system.frame_name.empty() && Data::system.show_frame) {
 		FileRequestAsync* request = AsyncHandler::RequestFile("Frame", Data::system.frame_name);
 		request->SetGraphicFile(true);
@@ -33,29 +34,16 @@ Frame::Frame() {
 		request->Start();
 	}
 
-	Graphics::RegisterDrawable(this);
-}
-
-Frame::~Frame() {
-	Graphics::RemoveDrawable(this);
-}
-
-int Frame::GetZ() const {
-	return z;
-}
-
-DrawableType Frame::GetType() const {
-	return type;
+	DrawableMgr::Register(this);
 }
 
 void Frame::Update() {
 	// no-op
 }
 
-void Frame::Draw() {
+void Frame::Draw(Bitmap& dst) {
 	if (frame_bitmap) {
-		BitmapRef dst = DisplayUi->GetDisplaySurface();
-		dst->Blit(0, 0, *frame_bitmap, frame_bitmap->GetRect(), 255);
+		dst.Blit(0, 0, *frame_bitmap, frame_bitmap->GetRect(), 255);
 	}
 }
 

@@ -81,10 +81,12 @@ int Game_Character::GetScreenX(bool apply_shift) const {
 	return x;
 }
 
-int Game_Character::GetScreenY(bool apply_shift) const {
+int Game_Character::GetScreenY(bool apply_shift, bool apply_jump) const {
 	int y = GetSpriteY() / TILE_SIZE - Game_Map::GetDisplayY() / TILE_SIZE + TILE_SIZE;
 
-	y -= GetJumpHeight();
+	if (apply_jump) {
+		y -= GetJumpHeight();
+	}
 
 	if (Game_Map::LoopVertical()) {
 		y = Utils::PositiveModulo(y, Game_Map::GetHeight() * TILE_SIZE);
@@ -111,7 +113,7 @@ int Game_Character::GetScreenZ(bool apply_shift) const {
 	}
 
 	// For events on the screen, this should be inside a 0-40 range
-	z += GetScreenY(apply_shift) >> 3;
+	z += GetScreenY(apply_shift, false) >> 3;
 
 	return z;
 }
@@ -361,12 +363,12 @@ void Game_Character::UpdateMoveRoute(int32_t& current_index, const RPG::MoveRout
 				SetMoveFrequency(max(GetMoveFrequency() - 1, 1));
 				break;
 			case RPG::MoveCommand::Code::switch_on: // Parameter A: Switch to turn on
-				Game_Switches.Set(move_command.parameter_a, true);
+				Main_Data::game_switches->Set(move_command.parameter_a, true);
 				Game_Map::SetNeedRefresh(Game_Map::Refresh_All);
 				Game_Map::Refresh();
 				break;
 			case RPG::MoveCommand::Code::switch_off: // Parameter A: Switch to turn off
-				Game_Switches.Set(move_command.parameter_a, false);
+				Main_Data::game_switches->Set(move_command.parameter_a, false);
 				Game_Map::SetNeedRefresh(Game_Map::Refresh_All);
 				Game_Map::Refresh();
 				break;
@@ -471,7 +473,9 @@ void Game_Character::MoveRandom(MoveOption option) {
 
 void Game_Character::Turn(int dir) {
 	SetDirection(dir);
-	SetSpriteDirection(dir);
+	if (!IsJumping()) {
+		SetSpriteDirection(dir);
+	}
 	move_failed = false;
 	SetStopCount(0);
 	SetMaxStopCountForTurn();

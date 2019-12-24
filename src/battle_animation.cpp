@@ -21,7 +21,6 @@
 #include "game_battle.h"
 #include "game_system.h"
 #include "game_map.h"
-#include "graphics.h"
 #include "main_data.h"
 #include "filefinder.h"
 #include "cache.h"
@@ -30,8 +29,11 @@
 #include "spriteset_battle.h"
 #include "player.h"
 #include "game_temp.h"
+#include "options.h"
+#include "drawable_mgr.h"
 
 BattleAnimation::BattleAnimation(const RPG::Animation& anim, bool only_sound, int cutoff) :
+	Sprite(TypeDefault),
 	animation(anim), frame(0), only_sound(only_sound)
 {
 	num_frames = GetRealFrames() * 2;
@@ -57,10 +59,6 @@ BattleAnimation::BattleAnimation(const RPG::Animation& anim, bool only_sound, in
 		request_id = request->Bind(&BattleAnimation::OnBattleSpriteReady, this);
 		request->Start();
 	}
-}
-
-DrawableType BattleAnimation::GetType() const {
-	return TypeDefault;
 }
 
 void BattleAnimation::Update() {
@@ -100,7 +98,7 @@ void BattleAnimation::OnBattle2SpriteReady(FileRequestResult* result) {
 	SetSrcRect(Rect(0, 0, 0, 0));
 }
 
-void BattleAnimation::DrawAt(int x, int y) {
+void BattleAnimation::DrawAt(Bitmap& dst, int x, int y) {
 	if (IsDone()) {
 		return;
 	}
@@ -135,13 +133,13 @@ void BattleAnimation::DrawAt(int x, int y) {
 		SetOpacity(255 * (100 - cell.transparency) / 100);
 		SetZoomX(cell.zoom / 100.0);
 		SetZoomY(cell.zoom / 100.0);
-		Sprite::Draw();
+		Sprite::Draw(dst);
 	}
 
 	if (anim_frame.cells.empty()) {
 		// Draw an empty sprite when no cell is available in the animation
 		SetSrcRect(Rect(0, 0, 0, 0));
-		Sprite::Draw();
+		Sprite::Draw(dst);
 	}
 }
 
@@ -242,48 +240,44 @@ static int CalculateOffset(int pos, int target_height) {
 BattleAnimationMap::BattleAnimationMap(const RPG::Animation& anim, Game_Character& target, bool global) :
 	BattleAnimation(anim), target(target), global(global)
 {
-	Graphics::RegisterDrawable(this);
 }
-BattleAnimationMap::~BattleAnimationMap() {
-	Graphics::RemoveDrawable(this);
-}
-void BattleAnimationMap::Draw() {
+
+void BattleAnimationMap::Draw(Bitmap& dst) {
 	if (IsOnlySound()) {
 		return;
 	}
 
 	if (global) {
-		DrawGlobal();
+		DrawGlobal(dst);
 	} else {
-		DrawSingle();
+		DrawSingle(dst);
 	}
 }
 
-void BattleAnimationMap::DrawGlobal() {
+void BattleAnimationMap::DrawGlobal(Bitmap& dst) {
 	// The animations are played at the vertices of a regular grid,
 	// 20 tiles wide by 10 tiles high, independant of the map.
-	// NOTE: not accurate, but see #574
 	const int x_stride = 20 * TILE_SIZE;
 	const int y_stride = 10 * TILE_SIZE;
-	int x_offset = (Game_Map::GetDisplayX()/TILE_SIZE) % x_stride;
-	int y_offset = (Game_Map::GetDisplayY()/TILE_SIZE) % y_stride;
+	int x_offset = Main_Data::game_screen->GetPanX() / TILE_SIZE;
+	int y_offset = Main_Data::game_screen->GetPanY() / TILE_SIZE;
 	for (int y = 0; y != 3; ++y) {
 		for (int x = 0; x != 3; ++x) {
-			DrawAt(x_stride*x - x_offset, y_stride*y - y_offset);
+			DrawAt(dst, x_stride*x + x_offset, y_stride*y + y_offset);
 		}
 	}
 }
 
-void BattleAnimationMap::DrawSingle() {
+void BattleAnimationMap::DrawSingle(Bitmap& dst) {
 	//If animation is targeted on the screen
 	if (animation.scope == RPG::Animation::Scope_screen) {
-		DrawAt(SCREEN_TARGET_WIDTH / 2, SCREEN_TARGET_HEIGHT / 2);
+		DrawAt(dst, SCREEN_TARGET_WIDTH / 2, SCREEN_TARGET_HEIGHT / 2);
 		return;
 	}
 	const int character_height = 24;
-	int vertical_center = target.GetScreenY() - character_height/2;
+	int vertical_center = target.GetScreenY(false, false) - character_height / 2;
 	int offset = CalculateOffset(animation.position, character_height);
-	DrawAt(target.GetScreenX(), vertical_center + offset);
+	DrawAt(dst, target.GetScreenX(), vertical_center + offset);
 }
 
 void BattleAnimationMap::FlashTargets(int r, int g, int b, int p) {
@@ -298,16 +292,13 @@ void BattleAnimationMap::ShakeTargets(int str, int spd, int time) {
 BattleAnimationBattle::BattleAnimationBattle(const RPG::Animation& anim, std::vector<Game_Battler*> battlers, bool only_sound, int cutoff_frame) :
 	BattleAnimation(anim, only_sound, cutoff_frame), battlers(std::move(battlers))
 {
-	Graphics::RegisterDrawable(this);
 }
-BattleAnimationBattle::~BattleAnimationBattle() {
-	Graphics::RemoveDrawable(this);
-}
-void BattleAnimationBattle::Draw() {
+
+void BattleAnimationBattle::Draw(Bitmap& dst) {
 	if (IsOnlySound())
 		return;
 	if (animation.scope == RPG::Animation::Scope_screen) {
-		DrawAt(SCREEN_TARGET_WIDTH / 2, SCREEN_TARGET_HEIGHT / 3);
+		DrawAt(dst, SCREEN_TARGET_WIDTH / 2, SCREEN_TARGET_HEIGHT / 3);
 		return;
 	}
 
@@ -319,7 +310,7 @@ void BattleAnimationBattle::Draw() {
 		if (sprite && sprite->GetBitmap()) {
 			offset = CalculateOffset(animation.position, sprite->GetHeight());
 		}
-		DrawAt(battler.GetBattleX(), battler.GetBattleY() + offset);
+		DrawAt(dst, battler.GetBattleX(), battler.GetBattleY() + offset);
 	}
 }
 void BattleAnimationBattle::FlashTargets(int r, int g, int b, int p) {

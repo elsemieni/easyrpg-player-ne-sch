@@ -17,27 +17,18 @@
 
 // Headers
 #include "plane.h"
-#include "graphics.h"
 #include "player.h"
 #include "bitmap.h"
 #include "main_data.h"
 #include "game_map.h"
+#include "drawable_mgr.h"
 
-Plane::Plane() :
-	type(TypePlane),
-	visible(true),
-	z(0),
-	ox(0),
-	oy(0) {
-
-	Graphics::RegisterDrawable(this);
+Plane::Plane() : Drawable(TypePlane, 0, false)
+{
+	DrawableMgr::Register(this);
 }
 
-Plane::~Plane() {
-	Graphics::RemoveDrawable(this);
-}
-
-void Plane::Draw() {
+void Plane::Draw(Bitmap& dst) {
 	if (!visible || !bitmap) return;
 
 	if (needs_refresh) {
@@ -54,8 +45,7 @@ void Plane::Draw() {
 
 	BitmapRef source = tone_effect == Tone() ? bitmap : tone_bitmap;
 
-	BitmapRef dst = DisplayUi->GetDisplaySurface();
-	Rect dst_rect = dst->GetRect();
+	Rect dst_rect = dst.GetRect();
 	int src_x = -ox;
 	int src_y = -oy;
 
@@ -93,55 +83,6 @@ void Plane::Draw() {
 		src_x += shake_pos + bg_x;
 	}
 
-	dst->TiledBlit(src_x, src_y, source->GetRect(), *source, dst_rect, 255);
+	dst.TiledBlit(src_x, src_y, source->GetRect(), *source, dst_rect, 255);
 }
 
-BitmapRef const& Plane::GetBitmap() const {
-	return bitmap;
-}
-void Plane::SetBitmap(BitmapRef const& nbitmap) {
-	bitmap = nbitmap;
-
-	needs_refresh = true;
-}
-
-bool Plane::GetVisible() const {
-	return visible;
-}
-void Plane::SetVisible(bool nvisible) {
-	visible = nvisible;
-}
-int Plane::GetZ() const {
-	return z;
-}
-void Plane::SetZ(int nz) {
-	if (z != nz) Graphics::UpdateZCallback();
-	z = nz;
-}
-int Plane::GetOx() const {
-	return ox;
-}
-void Plane::SetOx(int nox) {
-	ox = nox;
-}
-int Plane::GetOy() const {
-	return oy;
-}
-void Plane::SetOy(int noy) {
-	oy = noy;
-}
-
-Tone Plane::GetTone() const {
-	return tone_effect;
-}
-
-void Plane::SetTone(Tone tone) {
-	if (tone_effect != tone) {
-		tone_effect = tone;
-		needs_refresh = true;
-	}
-}
-
-DrawableType Plane::GetType() const {
-	return type;
-}

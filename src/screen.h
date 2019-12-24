@@ -35,24 +35,11 @@
 class Screen : public Drawable {
 public:
 	Screen();
-	~Screen() override;
 
-	void Draw() override;
-	void Update();
-
-	int GetZ() const override;
-	DrawableType GetType() const override;
-
-	Tone GetTone() const;
-	void SetTone(Tone tone);
+	void Draw(Bitmap& dst) override;
 
 private:
-	static const int z = Priority_Screen;
-	static const DrawableType type = TypeScreen;
-
 	BitmapRef flash;
-
-	Tone tone_effect;
 };
 
 #endif

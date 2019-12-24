@@ -19,6 +19,8 @@
 #define EP_TONE_H
 
 #include <tuple>
+#include <ostream>
+#include <algorithm>
 
 /**
  * Tone class.
@@ -26,9 +28,9 @@
 class Tone {
 public:
 	/**
-	 * Constructor. All values are set to 0.
+	 * Constructor. All values are set to 128.
 	 */
-	Tone();
+	constexpr Tone() = default;
 
 	/**
 	 * Constructor.
@@ -38,35 +40,25 @@ public:
 	 * @param blue blue component.
 	 * @param gray gray component.
 	 */
-	Tone(int red, int green, int blue, int gray);
-
-	/**
-	 * Set all color properties.
-	 *
-	 * @param red red component.
-	 * @param green green component.
-	 * @param blue blue component.
-	 * @param gray gray component.
-	 */
-	void Set(int red, int green, int blue, int gray);
+	constexpr Tone(int red, int green, int blue, int gray);
 
 	/** Red component. */
-	int red;
+	int red = 128;
 
 	/** Green component. */
-	int green;
+	int green = 128;
 
 	/** Blue component. */
-	int blue;
+	int blue = 128;
 
 	/** Gray component. */
-	int gray;
+	int gray = 128;
 };
 
 inline Tone Blend(const Tone& l, const Tone& r) {
-	return Tone((l.red + r.red) / 2,
-			(l.green + r.green) / 2,
-			(l.blue + r.blue) / 2,
+	return Tone((l.red * r.red) / 128,
+			(l.green * r.green) / 128,
+			(l.blue * r.blue) / 128,
 			(l.gray * r.gray) / 128);
 }
 
@@ -85,6 +77,18 @@ inline bool operator<(const Tone &l, const Tone& r) {
 	return
 		std::tie(l.red, l.green, l.blue, l.gray) <
 		std::tie(r.red, r.green, r.blue, r.gray);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const Tone& t) {
+	os << "Tone{" << t.red << ", " << t.green << ", " << t.blue << ", " << t.gray << "}";
+	return os;
+}
+
+constexpr Tone::Tone(int red, int green, int blue, int gray) :
+	red(std::min(255, std::max(0, red))),
+	green(std::min(255, std::max(0, green))),
+	blue(std::min(255, std::max(0, blue))),
+	gray(std::min(255, std::max(0, gray))) {
 }
 
 #endif

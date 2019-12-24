@@ -33,6 +33,7 @@
 #include "game_player.h"
 #include "game_system.h"
 #include "game_temp.h"
+#include "game_screen.h"
 #include "rpg_system.h"
 #include "player.h"
 #include "transition.h"
@@ -40,6 +41,7 @@
 #include "input.h"
 #include "screen.h"
 #include "scene_load.h"
+#include "graphics.h"
 
 //netherware
 #include "game_switches.h"
@@ -60,6 +62,9 @@ static bool GetRunForegroundEvents(TeleportTarget::Type tt) {
 Scene_Map::Scene_Map(bool from_save) :
 	from_save(from_save) {
 	type = Scene::Map;
+
+	// New Game and Load Game always have a delay, so it set it by default in constructor.
+	SetDelayFrames(Scene::kStartGameDelayFrames);
 }
 
 Scene_Map::~Scene_Map() {
@@ -70,10 +75,14 @@ void Scene_Map::Start() {
 	spriteset.reset(new Spriteset_Map());
 	message_window.reset(new Window_Message(0, SCREEN_TARGET_HEIGHT - 80, SCREEN_TARGET_WIDTH, 80));
 
+	Game_Message::SetWindow(message_window.get());
+
 	// Called here instead of Scene Load, otherwise wrong graphic stack
 	// is used.
 	if (from_save) {
 		Main_Data::game_screen->SetupFromSave();
+	} else {
+		Main_Data::game_screen->SetupNewGame();
 	}
 
 	Player::FrameReset();
@@ -91,10 +100,12 @@ void Scene_Map::Start2(MapUpdateAsyncContext actx) {
 
 	if (Main_Data::game_player->IsPendingTeleport()) {
 		TeleportParams tp;
-		tp.run_foreground_events = GetRunForegroundEvents(Main_Data::game_player->GetTeleportTarget().GetType());
+		auto tt = Main_Data::game_player->GetTeleportTarget().GetType();
+		tp.run_foreground_events = GetRunForegroundEvents(tt);
 		tp.erase_screen = false;
 		tp.use_default_transition_in = true;
 		tp.defer_recursive_teleports = false;
+		tp.no_transition_in = (tt == TeleportTarget::eVehicleHackTeleport);
 		StartPendingTeleport(tp);
 		return;
 	}
@@ -103,6 +114,8 @@ void Scene_Map::Start2(MapUpdateAsyncContext actx) {
 }
 
 void Scene_Map::Continue(SceneType prev_scene) {
+	Game_Message::SetWindow(message_window.get());
+
 	if (prev_scene == Scene::Battle) {
 		Game_Map::OnContinueFromBattle();
 	} else {
@@ -121,7 +134,12 @@ void Scene_Map::Continue(SceneType prev_scene) {
 		return;
 	}
 
+	UpdateGraphics();
+}
+
+void Scene_Map::UpdateGraphics() {
 	spriteset->Update();
+	Main_Data::game_screen->UpdateGraphics();
 }
 
 static bool IsMenuScene(Scene::SceneType scene) {
@@ -185,19 +203,19 @@ void Scene_Map::TransitionOut(SceneType next_scene) {
 }
 
 void Scene_Map::DrawBackground() {
-	if (spriteset->RequireBackground(GetGraphicsState().drawable_list)) {
+	if (spriteset->RequireBackground(GetDrawableList())) {
 		DisplayUi->CleanDisplay();
 	}
 }
 
 void Scene_Map::PreUpdate(MapUpdateAsyncContext& actx) {
-	Game_Map::Update(actx, *message_window, true);
-	spriteset->Update();
+	Game_Map::Update(actx, true);
+	UpdateGraphics();
 }
 
 void Scene_Map::PreUpdateForegroundEvents(MapUpdateAsyncContext& actx) {
-	Game_Map::UpdateForegroundEvents(actx, *message_window);
-	spriteset->Update();
+	Game_Map::UpdateForegroundEvents(actx);
+	UpdateGraphics();
 }
 
 void Scene_Map::Update() {
@@ -210,8 +228,8 @@ void Scene_Map::Update() {
 }
 
 void Scene_Map::UpdateStage1(MapUpdateAsyncContext actx) {
-	Game_Map::Update(actx, *message_window);
-	spriteset->Update();
+	Game_Map::Update(actx);
+	UpdateGraphics();
 
 	// Waiting for async operation from map update.
 	if (actx.IsActive()) {
@@ -226,11 +244,13 @@ void Scene_Map::UpdateStage1(MapUpdateAsyncContext actx) {
 
 void Scene_Map::UpdateStage2() {
 	if (Main_Data::game_player->IsPendingTeleport()) {
+		const auto tt = Main_Data::game_player->GetTeleportTarget().GetType();
 		TeleportParams tp;
-		tp.run_foreground_events = GetRunForegroundEvents(Main_Data::game_player->GetTeleportTarget().GetType());
+		tp.run_foreground_events = GetRunForegroundEvents(tt);
 		tp.erase_screen = true;
 		tp.use_default_transition_in = false;
 		tp.defer_recursive_teleports = false;
+		tp.no_transition_in = (tt == TeleportTarget::eVehicleHackTeleport);
 
 		StartPendingTeleport(tp);
 		return;
@@ -341,10 +361,12 @@ void Scene_Map::FinishPendingTeleport2(MapUpdateAsyncContext actx, TeleportParam
 	}
 
 	// This logic was tested against RPG_RT and works this way ...
-	if (tp.use_default_transition_in && Graphics::IsTransitionErased()) {
-		Graphics::GetTransition().Init(Transition::TransitionFadeIn, this, 32, false);
-	} else if (!tp.use_default_transition_in && !screen_erased_by_event) {
-		Graphics::GetTransition().Init((Transition::TransitionType)Game_System::GetTransition(Game_System::Transition_TeleportShow), this, 32, false);
+	if (!tp.no_transition_in) {
+		if (tp.use_default_transition_in && Graphics::IsTransitionErased()) {
+			Graphics::GetTransition().Init(Transition::TransitionFadeIn, this, 32, false);
+		} else if (!tp.use_default_transition_in && !screen_erased_by_event) {
+			Graphics::GetTransition().Init((Transition::TransitionType)Game_System::GetTransition(Game_System::Transition_TeleportShow), this, 32, false);
+		}
 	}
 
 	// Call any requested scenes when transition is done.

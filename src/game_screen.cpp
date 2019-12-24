@@ -19,6 +19,7 @@
 #define _USE_MATH_DEFINES
 #include "bitmap.h"
 #include "data.h"
+#include "player.h"
 #include "game_battle.h"
 #include "game_battler.h"
 #include "game_screen.h"
@@ -27,15 +28,40 @@
 #include "main_data.h"
 #include "output.h"
 #include "utils.h"
+#include "options.h"
 #include "reader_util.h"
 #include <cmath>
 
 static constexpr int kShakeContinuousTimeStart = 65535;
 
+static int GetDefaultNumberOfPictures() {
+	if (Player::IsEnglish()) {
+		return 1000;
+	}
+	else if (Player::IsMajorUpdatedVersion()) {
+		return 50;
+	}
+	else if (Player::IsRPG2k3Legacy()) {
+		return 40;
+	}
+	else if (Player::IsRPG2kLegacy()) {
+		return 20;
+	}
+	return 0;
+}
+
 Game_Screen::Game_Screen() :
 	data(Main_Data::game_data.screen)
 {
 	Reset();
+}
+
+void Game_Screen::SetupNewGame() {
+	Reset();
+
+	// Pre-allocate pictures depending on detected game version.
+	// This makes our savegames match RPG_RT.
+	PreallocatePictureData(GetDefaultNumberOfPictures());
 }
 
 void Game_Screen::SetupFromSave() {
@@ -50,26 +76,19 @@ void Game_Screen::SetupFromSave() {
 }
 
 void Game_Screen::CreatePicturesFromSave() {
-	std::vector<RPG::SavePicture>& save_pics = Main_Data::game_data.pictures;
+	const auto& save_pics = Main_Data::game_data.pictures;
 
-	pictures.resize(save_pics.size());
+	pictures.clear();
+	pictures.reserve(save_pics.size());
 
-	for (int id = 1; id <= (int)save_pics.size(); ++id) {
-		if (!save_pics[id - 1].name.empty()) {
-			pictures[id - 1].reset(new Game_Picture(id));
-		}
+	while (pictures.size() < save_pics.size()) {
+		pictures.emplace_back(pictures.size() + 1);
 	}
 }
 
 void Game_Screen::Reset() {
-	if (Main_Data::game_data.pictures.size() < pictures.size()) {
-		pictures.resize(Main_Data::game_data.pictures.size());
-	}
-
-	for (auto& p : pictures) {
-		if (p) {
-			p->Erase(false);
-		}
+	for (auto& pic : pictures) {
+		pic.Erase(false);
 	}
 
 	data.flash_red = 0;
@@ -99,25 +118,34 @@ void Game_Screen::Reset() {
 	animation.reset();
 }
 
+void Game_Screen::PreallocatePictureData(int id) {
+	if (id <= (int)pictures.size()) {
+		return;
+	}
+
+	const auto old_size = Main_Data::game_data.pictures.size();
+
+	// Some games use more pictures then RPG_RT officially supported
+	Main_Data::game_data.pictures.resize(id);
+
+	for (auto i = old_size; i < Main_Data::game_data.pictures.size(); ++i) {
+		Main_Data::game_data.pictures[i].ID = i + 1;
+	}
+
+	pictures.reserve(id);
+	while (pictures.size() < id) {
+		pictures.emplace_back(pictures.size() + 1);
+	}
+}
+
 Game_Picture* Game_Screen::GetPicture(int id) {
 	if (id <= 0) {
 		return NULL;
 	}
 
-	if (id > (int)pictures.size()) {
-		// Some games use more pictures then RPG_RT officially supported
-		Main_Data::game_data.pictures.resize(id);
+	PreallocatePictureData(id);
 
-		for (size_t i = 0; i < Main_Data::game_data.pictures.size(); ++i) {
-			Main_Data::game_data.pictures[i].ID = i + 1;
-		}
-
-		pictures.resize(id);
-	}
-	std::unique_ptr<Game_Picture>& p = pictures[id - 1];
-	if (!p)
-		p.reset(new Game_Picture(id));
-	return p.get();
+	return &pictures[id - 1];
 }
 
 void Game_Screen::TintScreen(int r, int g, int b, int s, int tenths) {
@@ -209,6 +237,14 @@ void Game_Screen::PlayMovie(const std::string& filename,
 	movie_res_y = res_y;
 }
 
+int Game_Screen::GetPanX() {
+	return data.pan_x;
+}
+
+int Game_Screen::GetPanY() {
+	return data.pan_y;
+}
+
 static double interpolate(double d, double x0, double x1)
 {
 	return (x0 * (d - 1) + x1) / d;
@@ -295,10 +331,8 @@ void Game_Screen::Update() {
 		}
 	}
 
-	for (const auto& picture : pictures) {
-		if (picture) {
-			picture->Update();
-		}
+	for (auto& picture : pictures) {
+		picture.Update();
 	}
 
 	if (!movie_filename.empty()) {
@@ -396,3 +430,8 @@ bool Game_Screen::IsBattleAnimationWaiting() {
 }
 
 
+void Game_Screen::UpdateGraphics() {
+	for (auto& picture: pictures) {
+		picture.UpdateSprite();
+	}
+}

@@ -30,16 +30,13 @@
 class Plane : public Drawable {
 public:
 	Plane();
-	~Plane() override;
 
-	void Draw() override;
+	void Draw(Bitmap& dst) override;
 
 	BitmapRef const& GetBitmap() const;
 	void SetBitmap(BitmapRef const& bitmap);
 	bool GetVisible() const;
 	void SetVisible(bool visible);
-	int GetZ() const override;
-	void SetZ(int z);
 	int GetOx() const;
 	void SetOx(int ox);
 	int GetOy() const;
@@ -47,22 +44,61 @@ public:
 	Tone GetTone() const;
 	void SetTone(Tone tone);
 
-	DrawableType GetType() const override;
-
 private:
-	DrawableType type;
-
 	BitmapRef bitmap;
 	BitmapRef tone_bitmap;
 
 	Tone tone_effect;
 
-	bool visible;
-	int z;
-	int ox;
-	int oy;
-
+	int ox = 0;
+	int oy = 0;
+	bool visible = true;
 	bool needs_refresh = false;
 };
+
+inline BitmapRef const& Plane::GetBitmap() const {
+	return bitmap;
+}
+
+inline void Plane::SetBitmap(BitmapRef const& nbitmap) {
+	bitmap = nbitmap;
+
+	needs_refresh = true;
+}
+
+inline bool Plane::GetVisible() const {
+	return visible;
+}
+
+inline void Plane::SetVisible(bool nvisible) {
+	visible = nvisible;
+}
+
+inline int Plane::GetOx() const {
+	return ox;
+}
+
+inline void Plane::SetOx(int nox) {
+	ox = nox;
+}
+
+inline int Plane::GetOy() const {
+	return oy;
+}
+
+inline void Plane::SetOy(int noy) {
+	oy = noy;
+}
+
+inline Tone Plane::GetTone() const {
+	return tone_effect;
+}
+
+inline void Plane::SetTone(Tone tone) {
+	if (tone_effect != tone) {
+		tone_effect = tone;
+		needs_refresh = true;
+	}
+}
 
 #endif
