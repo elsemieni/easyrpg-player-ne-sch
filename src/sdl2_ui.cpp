@@ -43,6 +43,7 @@
 #include "bitmap.h"
 
 //netherware fix: include game switches for some event manipulating
+#include "main_data.h"
 #include "game_switches.h"
 
 #include "audio.h"
@@ -530,8 +531,8 @@ void Sdl2Ui::ProcessEvent(SDL_Event &evnt) {
                 //evnt.which = index joystick de cual se quito
                 SDL_JoyDeviceEvent &evtt = (SDL_JoyDeviceEvent&) evnt;
                 //Output::Warning("SDL_JOYDEVICEREMOVED %d", evtt.which);
-                if (&Game_Switches && Game_Switches.IsValid(1601)) {
-                    Game_Switches.Set(1601, 1);
+                if (Main_Data::game_switches && Main_Data::game_switches->IsValid(1601)) {
+					Main_Data::game_switches->Set(1601, 1);
                 }
                 if (NethGloHapticsHandler) SDL_HapticClose(NethGloHapticsHandler);
                 SDL_JoystickClose(NethGloJoystickHandler);

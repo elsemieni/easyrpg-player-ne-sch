@@ -1780,7 +1780,7 @@ bool Game_Interpreter::CommandPlaySound(RPG::EventCommand const& com) { // code 
 
     //netherware fix: can we play audio? ^^
     //Output::Warning("sound %s", com.string);
-    if(com.string == "_rumble" && Game_Switches.IsValid(1603) && !Game_Switches.Get(1603)) {
+    if(com.string == "_rumble" && Main_Data::game_switches->IsValid(1603) && !Main_Data::game_switches->Get(1603)) {
         if (NethGloHapticsHandler) {
         	float intensity = com.parameters[0] / 100.f;
 			int duration = (com.parameters[1] - 40) * 10;
@@ -1802,12 +1802,12 @@ bool Game_Interpreter::CommandPlaySound(RPG::EventCommand const& com) { // code 
 bool Game_Interpreter::CommandEndEventProcessing(RPG::EventCommand const& /* com */) { // code 12310
 
 #ifdef STEAMSHIM
-	if ( Game_Variables.IsValid(1901) && Game_Variables.IsValid(1903) ) {
+	if (Main_Data::game_variables->IsValid(1901) && Main_Data::game_variables->IsValid(1903) ) {
 
 		const STEAMSHIM_Event *e;
 		std::string variableName;
 
-		switch (Game_Variables.Get(1901)) {
+		switch (Main_Data::game_variables->Get(1901)) {
 			case -101100:
 				//request stats
 				STEAMSHIM_requestStats();
@@ -1820,89 +1820,89 @@ bool Game_Interpreter::CommandEndEventProcessing(RPG::EventCommand const& /* com
 					//event received
 					switch (e->type) {
 						case SHIMEVENT_STATSRECEIVED:
-							Game_Variables.Set(1901, 1);
+							Main_Data::game_variables->Set(1901, 1);
 							break;
 						case SHIMEVENT_STATSSTORED:
-							Game_Variables.Set(1901, 2);
+							Main_Data::game_variables->Set(1901, 2);
 							break;
 						case SHIMEVENT_SETACHIEVEMENT:
-							Game_Variables.Set(1901, 3);
+							Main_Data::game_variables->Set(1901, 3);
 							break;
 						case SHIMEVENT_GETACHIEVEMENT:
-							Game_Variables.Set(1901, 4);
+							Main_Data::game_variables->Set(1901, 4);
 							break;
 						case SHIMEVENT_RESETSTATS:
-							Game_Variables.Set(1901, 5);
+							Main_Data::game_variables->Set(1901, 5);
 							break;
 						case SHIMEVENT_SETSTATI:
-							Game_Variables.Set(1901, 6);
+							Main_Data::game_variables->Set(1901, 6);
 							break;
 						case SHIMEVENT_GETSTATI:
-							Game_Variables.Set(1901, 7);
-							Game_Variables.Set(1902, e->ivalue);
+							Main_Data::game_variables->Set(1901, 7);
+							Main_Data::game_variables->Set(1902, e->ivalue);
 							break;
 					    case SHIMEVENT_LEADERBOARDFINDRESULT:
-					        Game_Variables.Set(1901, 8);
-					        Game_Variables.Set(1902, e->ivalue);
+							Main_Data::game_variables->Set(1901, 8);
+							Main_Data::game_variables->Set(1902, e->ivalue);
 						default:
-							Game_Variables.Set(1901, -1);
+							Main_Data::game_variables->Set(1901, -1);
 							break;
 					}
 				} else {
 					//No event this time
-					Game_Variables.Set(1901, 0);
+					Main_Data::game_variables->Set(1901, 0);
 				}
 				return true;;
 				break;
 			case -101102:
 				//get stat
-				variableName = "RM_STEAM_STAT" + std::to_string(Game_Variables.Get(1902));
+				variableName = "RM_STEAM_STAT" + std::to_string(Main_Data::game_variables->Get(1902));
 				STEAMSHIM_getStatI(variableName.c_str());
-				Game_Variables.Set(1901, 0);
+				Main_Data::game_variables->Set(1901, 0);
 				return true;
 				break;
 			case -101103:
 				//get archivement
-				variableName = "RM_STEAM_ARCHIV" + std::to_string(Game_Variables.Get(1902));
+				variableName = "RM_STEAM_ARCHIV" + std::to_string(Main_Data::game_variables->Get(1902));
 				STEAMSHIM_getAchievement(variableName.c_str());
-				Game_Variables.Set(1901, 0);
+				Main_Data::game_variables->Set(1901, 0);
 				return true;
 				break;
 			case -101104:
 				//set statI
-				variableName = "RM_STEAM_STAT" + std::to_string(Game_Variables.Get(1902));
-				STEAMSHIM_setStatI(variableName.c_str(), Game_Variables.Get(1903));
+				variableName = "RM_STEAM_STAT" + std::to_string(Main_Data::game_variables->Get(1902));
+				STEAMSHIM_setStatI(variableName.c_str(), Main_Data::game_variables->Get(1903));
 				STEAMSHIM_storeStats();
-				Game_Variables.Set(1901, 0);
+				Main_Data::game_variables->Set(1901, 0);
 				return true;
 				break;
 			case -101105:
 				//set archivement
-				variableName = "RM_STEAM_ARCHIV" + std::to_string(Game_Variables.Get(1902));
+				variableName = "RM_STEAM_ARCHIV" + std::to_string(Main_Data::game_variables->Get(1902));
 				STEAMSHIM_setAchievement(variableName.c_str(), 1);
 				STEAMSHIM_storeStats();
-				Game_Variables.Set(1901, 0);
+				Main_Data::game_variables->Set(1901, 0);
 				return true;
 				break;
 			case -101106:
 				//reset
 				STEAMSHIM_resetStats(1);
     			STEAMSHIM_storeStats();
-    			Game_Variables.Set(1901, 0);
+				Main_Data::game_variables->Set(1901, 0);
     			return true;
     			break;
     		case -101107:
 				//get scoreboard id
-				variableName = "SCOREBOARD_" + std::to_string(Game_Variables.Get(1902));
+				variableName = "SCOREBOARD_" + std::to_string(Main_Data::game_variables->Get(1902));
 				STEAMSHIM_findLeaderboard(variableName.c_str());
-    			Game_Variables.Set(1901, 0);
+				Main_Data::game_variables->Set(1901, 0);
     			return true;
     			break;
     		case -101108:
 				//set value to scoreboard
-				STEAMSHIM_uploadLeaderboardScore(Game_Variables.Get(1902), Game_Variables.Get(1903));
+				STEAMSHIM_uploadLeaderboardScore(Main_Data::game_variables->Get(1902), Main_Data::game_variables->Get(1903));
 				STEAMSHIM_storeStats();
-    			Game_Variables.Set(1901, 0);
+				Main_Data::game_variables->Set(1901, 0);
     			return true;
     			break;
     			//next cases just skip to the next check block.
@@ -1925,7 +1925,7 @@ bool Game_Interpreter::CommandEndEventProcessing(RPG::EventCommand const& /* com
 
 #else
 	//netherware fix: if it's a standalone build and if I try to call steamshim function, do nothing.
-	if (!Game_Variables.IsValid(1901) || Game_Variables.Get(1901) == 0 ) {
+	if (!Main_Data::game_variables->IsValid(1901) || Main_Data::game_variables->Get(1901) == 0 ) {
 		auto* frame = GetFrame();
 		assert(frame);
 		const auto& list = frame->commands;
@@ -1937,35 +1937,35 @@ bool Game_Interpreter::CommandEndEventProcessing(RPG::EventCommand const& /* com
 #endif
 
     //si fuera de los casos quiero hacer mas comandos universalmente hablando
-    if ( Game_Variables.IsValid(1901) && Game_Variables.IsValid(1903) && Game_Variables.Get(1901) != 0 ) {
-        switch (Game_Variables.Get(1901)) {
+    if (Main_Data::game_variables->IsValid(1901) && Main_Data::game_variables->IsValid(1903) && Main_Data::game_variables->Get(1901) != 0 ) {
+        switch (Main_Data::game_variables->Get(1901)) {
             case -101113: //llamar tooglezoom
                 DisplayUi->ToggleZoom();
-                Game_Variables.Set(1901, 0);
+				Main_Data::game_variables->Set(1901, 0);
                 return true;
                 break;
 
             case -101114: //llamar tooglefullscreen
                 DisplayUi->ToggleFullscreen();
-                Game_Variables.Set(1901, 0);
+				Main_Data::game_variables->Set(1901, 0);
                 return true;
                 break;
 
             case -101115: //llamar fpsflag
                 Player::fps_flag = !Player::fps_flag;
-                Game_Variables.Set(1901, 0);
+				Main_Data::game_variables->Set(1901, 0);
                 return true;
                 break;
 
             case -101116: //llamar toogle log
                 Output::ToggleLog();
-                Game_Variables.Set(1901, 0);
+				Main_Data::game_variables->Set(1901, 0);
                 return true;
                 break;
 
             case -101117: //llamar a menu debug
                 Scene::instance->SetRequestedScene(Scene::Debug);
-                Game_Variables.Set(1901, 0);
+				Main_Data::game_variables->Set(1901, 0);
                 return true;
                 break;
 

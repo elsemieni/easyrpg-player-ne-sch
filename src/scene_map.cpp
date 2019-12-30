@@ -429,7 +429,7 @@ void Scene_Map::CallLoad() {
 
 void Scene_Map::CallDebug() {
 	//netherware fix
-	if (Player::debug_flag || (Game_Switches.IsValid(1602) && Game_Switches.Get(1602) == true)) {
+	if (Player::debug_flag || (Main_Data::game_switches->IsValid(1602) && Main_Data::game_switches->Get(1602) == true)) {
 		Scene::Push(std::make_shared<Scene_Debug>());
 	}
 }
