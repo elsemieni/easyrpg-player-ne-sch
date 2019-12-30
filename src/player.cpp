@@ -70,6 +70,7 @@
 #include "scene_logo.h"
 #include "utils.h"
 #include "version.h"
+#include "game_quit.h"
 
 #ifndef EMSCRIPTEN
 // This is not used on Emscripten.
@@ -274,9 +275,6 @@ void Player::Update(bool update_scene) {
 	if (Input::IsTriggered(Input::SHOW_LOG)) {
 		Output::ToggleLog();
 	}
-	if (Input::IsTriggered(Input::RESET)) {
-		reset_flag = true;
-	}
 	if (Input::IsTriggered(Input::TOGGLE_ZOOM)) {
 		DisplayUi->ToggleZoom();
 	}
@@ -284,8 +282,15 @@ void Player::Update(bool update_scene) {
 		DisplayUi->ToggleFullscreen();
 	}
 
+	if (Main_Data::game_quit) {
+		Main_Data::game_quit->Update();
+		reset_flag |= Main_Data::game_quit->ShouldQuit();
+	}
+
 	// Update Logic:
 	DisplayUi->ProcessEvents();
+
+	std::shared_ptr<Scene> old_instance = Scene::instance;
 
 	if (exit_flag) {
 		Scene::PopUntil(Scene::Null);
@@ -302,8 +307,6 @@ void Player::Update(bool update_scene) {
 
 	Audio().Update();
 	Input::Update();
-
-	std::shared_ptr<Scene> old_instance = Scene::instance;
 
 	int speed_modifier = GetSpeedModifier();
 
@@ -355,8 +358,7 @@ void Player::Update(bool update_scene) {
 
 void Player::IncFrame() {
 	++frames;
-	// RPG_RT compatible frame counter.
-	++Main_Data::game_data.system.frame_count;
+	Game_System::IncFrameCounter();
 }
 
 void Player::FrameReset() {
@@ -800,6 +802,7 @@ void Player::ResetGameObjects() {
 	Main_Data::game_enemyparty = std::make_unique<Game_EnemyParty>();
 	Main_Data::game_party = std::make_unique<Game_Party>();
 	Main_Data::game_player = std::make_unique<Game_Player>();
+	Main_Data::game_quit = std::make_unique<Game_Quit>();
 
 	FrameReset();
 }
@@ -864,38 +867,6 @@ static void FixSaveGames() {
 		Main_Data::game_data.ship_location.vehicle = 2;
 		Main_Data::game_data.airship_location.vehicle = 3;
 	}
-
-	// Old versions of player didn't sort the inventory, this ensures inventory is sorted
-	// as our Game_Party code relies on that. Items in RPG_RT are always sorted in the inventory.
-	if (!std::is_sorted(Main_Data::game_data.inventory.item_ids.begin(), Main_Data::game_data.inventory.item_ids.end())) {
-		Output::Debug("Loaded Save Game with unsorted inventory! Sorting ...");
-		// Resort the inventory.
-		struct ItemData { int id; int count; int usage; };
-
-		auto& ids = Main_Data::game_data.inventory.item_ids;
-		auto& counts = Main_Data::game_data.inventory.item_counts;
-		auto& usages = Main_Data::game_data.inventory.item_usage;
-
-		auto num_items = std::min(ids.size(), std::min(counts.size(), usages.size()));
-		std::vector<ItemData> items;
-		for (size_t i = 0; i < num_items; ++i) {
-			items.push_back(ItemData{ids[i], counts[i], usages[i]});
-		}
-
-		std::sort(items.begin(), items.end(), [](const ItemData& l, const ItemData& r) { return l.id < r.id; });
-
-		ids.clear();
-		counts.clear();
-		usages.clear();
-
-		for (auto& itd: items) {
-			ids.push_back(itd.id);
-			counts.push_back(itd.count);
-			usages.push_back(itd.usage);
-		}
-	}
-
-
 }
 
 static void OnMapSaveFileReady(FileRequestResult*) {
@@ -904,7 +875,7 @@ static void OnMapSaveFileReady(FileRequestResult*) {
 
 	Main_Data::game_player->Refresh();
 
-	RPG::Music current_music = Main_Data::game_data.system.current_music;
+	auto current_music = Game_System::GetCurrentBGM();
 	Game_System::BgmStop();
 	Game_System::BgmPlay(current_music);
 }
@@ -949,7 +920,7 @@ void Player::LoadSavegame(const std::string& save_name) {
 	Main_Data::game_data.system.Fixup();
 
 	Game_Actors::Fixup();
-	Main_Data::game_party->RemoveInvalidData();
+	Main_Data::game_party->SetupFromSave(std::move(Main_Data::game_data.inventory));
 
 	int map_id = save->party_location.map_id;
 
@@ -984,6 +955,13 @@ static void OnMapFileReady(FileRequestResult*) {
 	Main_Data::game_player->MoveTo(x_pos, y_pos);
 	Main_Data::game_player->Refresh();
 	Game_Map::PlayBgm();
+}
+
+void Player::SetupNewGame() {
+	Game_System::ResetFrameCounter();
+
+	Main_Data::game_party->SetupNewGame();
+	SetupPlayerSpawn();
 }
 
 void Player::SetupPlayerSpawn() {

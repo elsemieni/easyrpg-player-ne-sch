@@ -24,6 +24,7 @@
 #include "rpg_music.h"
 #include "rpg_sound.h"
 #include "rpg_system.h"
+#include "rpg_savesystem.h"
 
 struct FileRequestResult;
 
@@ -69,6 +70,8 @@ namespace Game_System {
 		Transition_EndBattleShow,
 		Transition_Count
 	};
+
+	using AtbMode = RPG::SaveSystem::AtbMode;
 
 	//Netherware lookup table for volume format conversion
 	const int Nether_rpgrt_vol_conversion_table[101] = {0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 7, 7, 8, 9, 9, 10, 10, 11, 12, 13, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 29, 30, 31, 33, 34, 36, 37, 39, 41, 42, 44, 46, 47, 49, 51, 53, 55, 57, 59, 61, 64, 66, 68, 70, 73, 75, 78, 80, 83, 86, 88, 91, 94, 97, 100};
@@ -294,6 +297,54 @@ namespace Game_System {
 	bool IsStopMusicFilename(const std::string& name);
 	bool IsStopSoundFilename(const std::string& name, std::string& found_name);
 	bool IsStopSoundFilename(const std::string& name);
+
+	/** @return current atb mode */
+	AtbMode GetAtbMode();
+
+	/** Set the atb mode */
+	void SetAtbMode(AtbMode m);
+
+	/** Flip the atb mode to the opposite */
+	void ToggleAtbMode();
+
+	/** @return Music playing before battle started */
+	const RPG::Music& GetBeforeBattleMusic();
+
+	/**
+	 * Set before battle music
+	 *
+	 * @param music music to set
+	 */
+	void SetBeforeBattleMusic(RPG::Music music);
+
+	/** @return Music playing before boarded vehicle */
+	const RPG::Music& GetBeforeVehicleMusic();
+
+	/**
+	 * Set before vehicle music
+	 *
+	 * @param name name of music to set
+	 */
+	void SetBeforeVehicleMusic(RPG::Music music);
+
+	/** @return save slot used for last save game */
+	int GetSaveSlot();
+
+	/**
+	 * Set the save slot used when saving the game
+	 *
+	 * @param slot the slot number
+	 */
+	void SetSaveSlot(int slot);
+
+	/** @return RPG_RT compatible frame counter */
+	int GetFrameCounter();
+
+	/** Reset the RPG_RT compatible frame counter to 0 */
+	void ResetFrameCounter();
+
+	/** Increment the RPG_RT compatible frame counter */
+	void IncFrameCounter();
 }
 
 inline bool Game_System::HasSystemGraphic() {

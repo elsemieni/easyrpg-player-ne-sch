@@ -26,7 +26,9 @@
 #include "font.h"
 #include "player.h"
 
-Window_Base::Window_Base(int x, int y, int width, int height) {
+Window_Base::Window_Base(int x, int y, int width, int height, bool is_global)
+	: Window(is_global)
+{
 	SetWindowskin(Cache::SystemOrBlack());
 
 	SetX(x);
@@ -84,7 +86,7 @@ void Window_Base::OnFaceReady(FileRequestResult* result, int face_index, int cx,
 		);
 
 	if (flip) {
-		contents->FlipBlit(cx, cy, *faceset, src_rect, true, false, Opacity::opaque);
+		contents->FlipBlit(cx, cy, *faceset, src_rect, true, false, Opacity::Opaque());
 	}
 	else {
 		contents->Blit(cx, cy, *faceset, src_rect, 255);

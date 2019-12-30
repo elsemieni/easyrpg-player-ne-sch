@@ -128,6 +128,8 @@ add_library(${PROJECT_NAME}
 	src/game_picture.h
 	src/game_player.cpp
 	src/game_player.h
+	src/game_quit.cpp
+	src/game_quit.h
 	src/game_screen.cpp
 	src/game_screen.h
 	src/game_switches.cpp
@@ -172,6 +174,7 @@ add_library(${PROJECT_NAME}
 	src/message_overlay.h
 	src/meta.cpp
 	src/meta.h
+	src/opacity.h
 	src/options.h
 	src/output.cpp
 	src/output.h
@@ -179,6 +182,7 @@ add_library(${PROJECT_NAME}
 	src/pending_message.cpp
 	src/picojson.h
 	src/pixel_format.h
+	src/pixman_image_ptr.h
 	src/plane.cpp
 	src/plane.h
 	src/player.cpp

@@ -96,7 +96,7 @@ void Window_ShopParty::Refresh() {
 		return;
 
 	const std::vector<Game_Actor*>& actors = Main_Data::game_party->GetActors();
-	for (size_t i = 0; i < actors.size() && i < 4; i++) {
+	for (int i = 0; i < static_cast<int>(actors.size()) && i < 4; i++) {
 		Game_Actor *actor = actors[i];
 		int phase = (cycle / anim_rate) % 4;
 		if (phase == 3) {
@@ -175,7 +175,7 @@ void Window_ShopParty::OnCharsetSpriteReady(FileRequestResult* /* result */, int
 			bm2->Clear();
 			bm2->Blit(0, 0, *bm, src, 255);
 			if (k == 0)
-				bm2->ToneBlit(0, 0, *bm2, bm2->GetRect(), Tone(128, 128, 128, 0), Opacity::opaque);
+				bm2->ToneBlit(0, 0, *bm2, bm2->GetRect(), Tone(128, 128, 128, 0), Opacity::Opaque());
 			bitmaps[party_index][j][k] = bm2;
 		}
 	}
