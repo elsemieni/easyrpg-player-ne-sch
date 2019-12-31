@@ -618,7 +618,7 @@ if(${PLAYER_AUDIO_BACKEND} MATCHES "^(SDL.*|libretro)$")
 	player_find_package(NAME FluidSynth
 			CONDITION PLAYER_WITH_FLUIDSYNTH
 			DEFINITION HAVE_FLUIDSYNTH
-			TARGET FluidSynth::FluidSynth)
+			TARGET fluidsynth::fluidsynth)
 
 	# libsndfile
 	player_find_package(NAME LibSndFile
