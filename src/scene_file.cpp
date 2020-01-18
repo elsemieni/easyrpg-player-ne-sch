@@ -81,7 +81,15 @@ void Scene_File::PopulatePartyFaces(Window_SaveFile& win, int /* id */, RPG::Sav
 		party[0].second = savegame.title.face1_name;
 	}
 
-	win.SetParty(party, savegame.title.hero_name, savegame.title.hero_hp, savegame.title.hero_level);
+	//netherware fix: add savetime instead hero time
+    char buf[100] = {0};
+    char buf2[100] = {0};
+    std::time_t now = LSD_Reader::ToUnixTimestamp(savegame.title.timestamp);
+    std::strftime(buf, sizeof(buf), "%m/%d/%y", std::localtime(&now));
+    std::sprintf(buf2, "%s - %s", buf, savegame.title.hero_name.c_str());
+    std::string elapsed_time(buf2);
+
+	win.SetParty(party, elapsed_time, savegame.title.hero_hp, savegame.title.hero_level);
 	win.SetHasSave(true);
 }
 

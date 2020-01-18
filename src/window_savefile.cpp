@@ -138,7 +138,7 @@ void Window_SaveFile::Refresh() {
 	contents->TextDraw(46 + hx, 32 + 2, fc, out.str());
 
 	for (int i = 0; i < 4 && (size_t) i < party.size(); i++) {
-		DrawFace(party[i].second, party[i].first, 92 + i * 56, 0, false);
+		DrawFace(party[i].second, party[i].first, 92 + 70 + i * 56, 0, false); //92
 	}
 }
 
