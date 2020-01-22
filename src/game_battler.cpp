@@ -16,6 +16,7 @@
  */
 
 // Headers
+#define _USE_MATH_DEFINES
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -23,6 +24,7 @@
 #include "game_battler.h"
 #include "game_actor.h"
 #include "game_enemyparty.h"
+#include "game_battle.h"
 #include "game_party.h"
 #include "game_party_base.h"
 #include "game_switches.h"
@@ -36,6 +38,7 @@
 #include "reader_util.h"
 #include "game_battlealgorithm.h"
 #include "state.h"
+#include "shake.h"
 
 Game_Battler::Game_Battler() {
 	ResetBattle();
@@ -173,15 +176,15 @@ bool Game_Battler::IsSkillUsable(int skill_id) const {
 	}
 
 	if (skill->type == RPG::Skill::Type_escape) {
-		return !Game_Temp::battle_running && Game_System::GetAllowEscape() && Game_Targets::HasEscapeTarget();
+		return !Game_Battle::IsBattleRunning() && Game_System::GetAllowEscape() && Game_Targets::HasEscapeTarget();
 	}
 
 	if (skill->type == RPG::Skill::Type_teleport) {
-		return !Game_Temp::battle_running && Game_System::GetAllowTeleport() && Game_Targets::HasTeleportTarget();
+		return !Game_Battle::IsBattleRunning() && Game_System::GetAllowTeleport() && Game_Targets::HasTeleportTarget();
 	}
 
 	if (skill->type == RPG::Skill::Type_switch) {
-		if (Game_Temp::battle_running) {
+		if (Game_Battle::IsBattleRunning()) {
 			return skill->occasion_battle;
 		} else {
 			return skill->occasion_field;
@@ -670,12 +673,13 @@ int Game_Battler::GetAgi() const {
 }
 
 int Game_Battler::GetDisplayX() const {
-	int shake_pos = Main_Data::game_data.screen.shake_position + shake_position;
+	int shake_pos = Main_Data::game_screen->GetShakeOffsetX() + shake.position;
 	return GetBattleX() + shake_pos;
 }
 
 int Game_Battler::GetDisplayY() const {
-	return GetBattleY() + GetFlyingOffset();
+	int shake_pos = Main_Data::game_screen->GetShakeOffsetY();
+	return GetBattleY() + GetFlyingOffset() + shake_pos;
 }
 
 int Game_Battler::GetHue() const {
@@ -729,15 +733,8 @@ int Game_Battler::GetFlyingOffset() const {
 }
 
 void Game_Battler::UpdateBattle() {
-	if (shake_time_left > 0) {
-		--shake_time_left;
-		if (shake_time_left > 0) {
-			shake_position = Game_Screen::AnimateShake(shake_strength, shake_speed, shake_time_left, shake_position);
-		} else {
-			shake_position = 0;
-			shake_time_left = 0;
-		}
-	}
+	Shake::Update(shake.position, shake.time_left, shake.strength, shake.speed, false);
+	Flash::Update(flash.current_level, flash.time_left);
 }
 
 const BattleAlgorithmRef Game_Battler::GetBattleAlgorithm() const {
@@ -881,9 +878,17 @@ int Game_Battler::GetHitChanceModifierFromStates() const {
 }
 
 void Game_Battler::ShakeOnce(int strength, int speed, int frames) {
-	shake_strength = strength;
-	shake_speed = speed;
-	shake_time_left = frames;
+	shake.strength = strength;
+	shake.speed = speed;
+	shake.time_left = frames;
 	// FIXME: RPG_RT doesn't reset position for screen shake. So we guess? it doesn't do so here either.
+}
+
+void Game_Battler::Flash(int r, int g, int b, int power, int frames) {
+	flash.red = r;
+	flash.green = g;
+	flash.blue = b;
+	flash.current_level = power;
+	flash.time_left = frames;
 }
 

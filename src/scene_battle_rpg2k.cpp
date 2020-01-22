@@ -349,14 +349,11 @@ void Scene_Battle_Rpg2k::ProcessActions() {
 		Main_Data::game_enemyparty->GetActiveBattlers(enemies);
 
 		Game_Enemy* target = static_cast<Game_Enemy*>(enemies[target_window->GetIndex()]);
-		Sprite_Battler* sprite = Game_Battle::GetSpriteset().FindBattler(target);
-		if (sprite) {
-			++select_target_flash_count;
+		++select_target_flash_count;
 
-			if (select_target_flash_count == 60) {
-				sprite->Flash(Color(255, 255, 255, 100), 15);
-				select_target_flash_count = 0;
-			}
+		if (select_target_flash_count == 60) {
+			SelectionFlash(target);
+			select_target_flash_count = 0;
 		}
 		break;
 	}
@@ -510,10 +507,7 @@ bool Scene_Battle_Rpg2k::ProcessActionBegin(Game_BattleAlgorithm::AlgorithmBase*
 		}
 
 		if (action->GetType() != Game_BattleAlgorithm::Type::Null || show_message) {
-			auto* source_sprite = Game_Battle::GetSpriteset().FindBattler(action->GetSource());
-			if (source_sprite) {
-				source_sprite->Flash(Color(255, 255, 255, 100), 15);
-			}
+			SelectionFlash(action->GetSource());
 		}
 
 		if (show_message) {
@@ -1537,6 +1531,7 @@ bool Scene_Battle_Rpg2k::CheckWin() {
 		Main_Data::game_enemyparty->GenerateDrops(drops);
 
 		auto pm = PendingMessage();
+		pm.SetEnableFace(false);
 
 		pm.SetWordWrapped(Player::IsRPG2kE());
 		pm.PushLine(Data::terms.victory + Player::escape_symbol + "|");
@@ -1556,10 +1551,11 @@ bool Scene_Battle_Rpg2k::CheckWin() {
 		std::vector<Game_Battler*> ally_battlers;
 		Main_Data::game_party->GetActiveBattlers(ally_battlers);
 
-		for (std::vector<Game_Battler*>::iterator it = ally_battlers.begin();
-			it != ally_battlers.end(); ++it) {
-				Game_Actor* actor = static_cast<Game_Actor*>(*it);
-				actor->ChangeExp(actor->GetExp() + exp, true);
+		pm.PushPageEnd();
+
+		for (auto& ally: ally_battlers) {
+			Game_Actor* actor = static_cast<Game_Actor*>(ally);
+			actor->ChangeExp(actor->GetExp() + exp, &pm);
 		}
 		Main_Data::game_party->GainGold(money);
 		for (std::vector<int>::iterator it = drops.begin(); it != drops.end(); ++it) {
@@ -1584,6 +1580,7 @@ bool Scene_Battle_Rpg2k::CheckLose() {
 		Game_Message::SetTransparent(false);
 
 		auto pm = PendingMessage();
+		pm.SetEnableFace(false);
 
 		pm.SetWordWrapped(Player::IsRPG2kE());
 

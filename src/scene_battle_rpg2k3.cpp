@@ -101,7 +101,6 @@ void Scene_Battle_Rpg2k3::Update() {
 	}
 
 	Scene_Battle::Update();
-	UpdateCursors();
 
 	//enemy_status_window->Update();
 }
@@ -194,7 +193,7 @@ void Scene_Battle_Rpg2k3::UpdateCursors() {
 		if (ally_index >= 0 && Data::battlecommands.battle_type != RPG::BattleCommands::BattleType_traditional) {
 			ally_cursor->SetVisible(true);
 			Main_Data::game_party->GetBattlers(actors);
-			const Game_Battler* actor = actors[ally_index];
+			Game_Battler* actor = actors[ally_index];
 			Sprite_Battler* sprite = Game_Battle::GetSpriteset().FindBattler(actor);
 			ally_cursor->SetX(actor->GetBattleX());
 			ally_cursor->SetY(actor->GetBattleY() - sprite->GetHeight() / 2);
@@ -202,8 +201,8 @@ void Scene_Battle_Rpg2k3::UpdateCursors() {
 			int frame = frames[(cycle / 15) % 4];
 			ally_cursor->SetSrcRect(Rect(frame * 16, 16, 16, 16));
 
-			if (cycle % 60 == 0) {
-				sprite->Flash(Color(255, 255, 255, 100), 15);
+			if (cycle % 30 == 0) {
+				SelectionFlash(actor);
 			}
 		}
 
@@ -587,14 +586,11 @@ void Scene_Battle_Rpg2k3::ProcessActions() {
 			Main_Data::game_enemyparty->GetActiveBattlers(enemies);
 
 			Game_Enemy* target = static_cast<Game_Enemy*>(enemies[target_window->GetIndex()]);
-			Sprite_Battler* sprite = Game_Battle::GetSpriteset().FindBattler(target);
-			if (sprite) {
-				++select_target_flash_count;
+			++select_target_flash_count;
 
-				if (select_target_flash_count == 60) {
-					sprite->Flash(Color(255, 255, 255, 100), 15);
-					select_target_flash_count = 0;
-				}
+			if (select_target_flash_count == 60) {
+				SelectionFlash(target);
+				select_target_flash_count = 0;
 			}
 			break;
 		}
@@ -697,7 +693,7 @@ bool Scene_Battle_Rpg2k3::ProcessBattleAction(Game_BattleAlgorithm::AlgorithmBas
 		action->Execute();
 
 		if (source_sprite) {
-			source_sprite->Flash(Color(255, 255, 255, 100), 15);
+			SelectionFlash(action->GetSource());
 			source_sprite->SetAnimationState(
 				action->GetSourceAnimationState(),
 				Sprite_Battler::LoopState_WaitAfterFinish);
@@ -1079,6 +1075,7 @@ bool Scene_Battle_Rpg2k3::CheckWin() {
 		Main_Data::game_enemyparty->GenerateDrops(drops);
 
 		auto pm = PendingMessage();
+		pm.SetEnableFace(false);
 
 		pm.PushLine(Data::terms.victory + Player::escape_symbol + "|");
 		pm.PushPageEnd();
@@ -1120,10 +1117,12 @@ bool Scene_Battle_Rpg2k3::CheckWin() {
 		std::vector<Game_Battler*> ally_battlers;
 		Main_Data::game_party->GetActiveBattlers(ally_battlers);
 
+		pm.PushPageEnd();
+
 		for (std::vector<Game_Battler*>::iterator it = ally_battlers.begin();
 			it != ally_battlers.end(); ++it) {
 				Game_Actor* actor = static_cast<Game_Actor*>(*it);
-				actor->ChangeExp(actor->GetExp() + exp, true);
+				actor->ChangeExp(actor->GetExp() + exp, &pm);
 		}
 
 		Main_Data::game_party->GainGold(money);
@@ -1148,6 +1147,7 @@ bool Scene_Battle_Rpg2k3::CheckLose() {
 		Game_Message::SetTransparent(false);
 
 		auto pm = PendingMessage();
+		pm.SetEnableFace(false);
 		pm.PushLine(Data::terms.defeat);
 
 		Game_System::BgmPlay(Game_System::GetSystemBGM(Game_System::BGM_GameOver));

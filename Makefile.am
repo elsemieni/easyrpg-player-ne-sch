@@ -88,6 +88,7 @@ libeasyrpg_player_a_SOURCES = \
 	src/exfont.h \
 	src/filefinder.cpp \
 	src/filefinder.h \
+	src/flash.h \
 	src/font.cpp \
 	src/font.h \
 	src/fps_overlay.cpp \
@@ -167,6 +168,8 @@ libeasyrpg_player_a_SOURCES = \
 	src/input_buttons_psp.cpp \
 	src/input_source.cpp \
 	src/input_source.h \
+	src/instrumentation.cpp \
+	src/instrumentation.h \
 	src/keys.h \
 	src/libretro_ui.cpp \
 	src/libretro_ui.h \
@@ -190,6 +193,8 @@ libeasyrpg_player_a_SOURCES = \
 	src/pixman_image_ptr.h \
 	src/plane.cpp \
 	src/plane.h \
+	src/platform.cpp \
+	src/platform.h \
 	src/player.cpp \
 	src/player.h \
 	src/psp2_ui.cpp \
@@ -256,6 +261,7 @@ libeasyrpg_player_a_SOURCES = \
 	src/scene_title.h \
 	src/screen.cpp \
 	src/screen.h \
+	src/shake.h \
 	src/sdl2_ui.cpp \
 	src/sdl2_ui.h \
 	src/sdl_ui.cpp \
@@ -467,11 +473,17 @@ test_runner_SOURCES = \
 	tests/test_main.cpp \
 	tests/bitmapfont.cpp \
 	tests/directorytree.cpp \
+	tests/drawable_list.cpp \
+	tests/drawable_mgr.cpp \
 	tests/filefinder.cpp \
 	tests/output.cpp \
+	tests/parse.cpp \
+	tests/platform.cpp \
 	tests/rtp.cpp \
+	tests/switches.cpp \
 	tests/utils.cpp \
 	tests/utf.cpp \
+	tests/variables.cpp \
 	tests/wordwrap.cpp
 test_runner_CXXFLAGS = \
 	$(libeasyrpg_player_a_CXXFLAGS) -DEP_TEST_PATH=\"$(srcdir)/tests\"

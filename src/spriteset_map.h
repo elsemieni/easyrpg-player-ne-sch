@@ -28,7 +28,6 @@
 #include "sprite_timer.h"
 #include "system.h"
 #include "tilemap.h"
-#include "weather.h"
 
 class Sprite_Character;
 class Game_Character;
@@ -70,7 +69,10 @@ public:
 	 */
 	void SubstituteUp(int old_id, int new_id);
 
-	bool RequireBackground(const DrawableList& drawable_list);
+	/**
+	 * @return true if we should clear the screen before drawing the map
+	 */
+	bool RequireClear(DrawableList& drawable_list);
 
 protected:
 	std::unique_ptr<Tilemap> tilemap;
@@ -81,7 +83,6 @@ protected:
 	std::unique_ptr<Sprite_Timer> timer1;
 	std::unique_ptr<Sprite_Timer> timer2;
 	std::unique_ptr<Screen> screen;
-	std::unique_ptr<Weather> weather;
 	std::unique_ptr<Frame> frame;
 
 	void CreateSprite(Game_Character* character, bool create_x_clone, bool create_y_clone);

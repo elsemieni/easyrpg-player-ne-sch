@@ -23,8 +23,6 @@
 #include "game_message.h"
 #include "game_party.h"
 #include "game_system.h"
-#include "game_temp.h"
-#include "graphics.h"
 #include "input.h"
 #include "main_data.h"
 #include "player.h"
@@ -33,6 +31,8 @@
 #include "output.h"
 #include "reader_util.h"
 #include "scope_guard.h"
+#include "scene_battle.h"
+#include "scene_menu.h"
 #include <algorithm>
 #include <cmath>
 
@@ -100,8 +100,6 @@ void Game_Player::PerformTeleport() {
 	} else {
 		Game_Map::SetupFromTeleportSelf();
 	}
-
-	SetTransparency(0);
 
 	MoveTo(teleport_target.GetX(), teleport_target.GetY());
 
@@ -242,7 +240,7 @@ void Game_Player::UpdateSelfMovement() {
 
 		if (IsEncounterCalling()) {
 			if (Game_Map::PrepareEncounter()) {
-				Scene::instance->SetRequestedScene(Scene::Battle);
+				Scene::instance->SetRequestedScene(Scene_Battle::Create());
 			}
 			SetEncounterCalling(false);
 			did_call_encounter = true;
@@ -251,7 +249,7 @@ void Game_Player::UpdateSelfMovement() {
 		if (IsMenuCalling()) {
 			if (!did_call_encounter) {
 				Game_System::SePlay(Game_System::GetSystemSE(Game_System::SFX_Decision));
-				Scene::instance->SetRequestedScene(Scene::Menu);
+				Scene::instance->SetRequestedScene(std::make_shared<Scene_Menu>());
 				did_call_menu = true;
 			}
 			SetMenuCalling(false);
@@ -445,16 +443,16 @@ bool Game_Player::CheckEventTriggerThere(TriggerSet triggers, int x, int y, bool
 }
 
 void Game_Player::Refresh() {
-	Game_Actor* actor;
 
-	if (Main_Data::game_party->GetActors().empty()) {
+	auto* actor = Main_Data::game_party->GetActor(0);
+	if (actor == nullptr) {
 		SetSpriteGraphic("", 0);
+		SetTransparency(0);
 		return;
 	}
 
-	actor = Main_Data::game_party->GetActors()[0];
-
 	SetSpriteGraphic(actor->GetSpriteName(), actor->GetSpriteIndex());
+	SetTransparency(actor->GetSpriteTransparency());
 
 	if (data()->aboard)
 		GetVehicle()->SyncWithPlayer();

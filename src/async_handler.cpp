@@ -25,6 +25,7 @@
 #endif
 
 #include "async_handler.h"
+#include "cache.h"
 #include "filefinder.h"
 #include "memory_management.h"
 #include "output.h"
@@ -32,7 +33,7 @@
 #include "main_data.h"
 #include <fstream>
 #include "utils.h"
-#include "graphics.h"
+#include "transition.h"
 
 // When this option is enabled async requests are randomly delayed.
 // This allows testing some aspects of async file fetching locally.
@@ -150,12 +151,18 @@ void FileRequestAsync::SetGraphicFile(bool graphic) {
 	// We need this flag in order to prevent show screen transitions
 	// from starting util all graphical assets are loaded.
 	// Also, the screen is erased, so you can't see any delays :)
-	if (Graphics::IsTransitionErased()) {
+	if (Transition::instance().IsErased()) {
 		SetImportantFile(true);
 	}
 }
 
 void FileRequestAsync::Start() {
+	if (file == CACHE_DEFAULT_BITMAP) {
+		// Embedded asset -> Fire immediately
+		DownloadDone(true);
+		return;
+	}
+
 	if (state == State_Pending) {
 		return;
 	}

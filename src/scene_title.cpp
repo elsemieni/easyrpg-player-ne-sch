@@ -26,7 +26,6 @@
 #include "game_battle.h"
 #include "game_screen.h"
 #include "game_system.h"
-#include "game_temp.h"
 #include "transition.h"
 #include "input.h"
 #include "main_data.h"
@@ -39,7 +38,6 @@
 #include "scene_map.h"
 #include "window_command.h"
 #include "baseui.h"
-#include "graphics.h"
 
 Scene_Title::Scene_Title() {
 	type = Scene::Title;
@@ -70,7 +68,7 @@ void Scene_Title::Continue(SceneType prev_scene) {
 		Player::ResetGameObjects();
 
 		Start();
-	} else if (prev_scene == Scene::Load && CheckEnableTitleGraphicAndMusic()) {
+	} else if (CheckEnableTitleGraphicAndMusic()) {
 		CreateTitleGraphic();
 	}
 
@@ -87,7 +85,7 @@ void Scene_Title::TransitionIn(SceneType prev_scene) {
 		Scene::TransitionIn(prev_scene);
 		return;
 	}
-	Graphics::GetTransition().Init(Transition::TransitionFadeIn, this, 32);
+	Transition::instance().Init(Transition::TransitionFadeIn, this, 32);
 }
 
 void Scene_Title::TransitionOut(Scene::SceneType next_scene) {
@@ -227,20 +225,18 @@ void Scene_Title::CommandContinue() {
 		return;
 	}
 
-	restart_title_cache = false;
 	Scene::Push(std::make_shared<Scene_Load>());
 }
 
 void Scene_Title::CommandImport() {
 	Game_System::SePlay(Game_System::GetSystemSE(Game_System::SFX_Decision));
 
-	restart_title_cache = false;
 	Scene::Push(std::make_shared<Scene_Import>());
 }
 
 void Scene_Title::CommandShutdown() {
 	Game_System::SePlay(Game_System::GetSystemSE(Game_System::SFX_Decision));
-	Graphics::GetTransition().Init(Transition::TransitionFadeOut, this, 32, true);
+	Transition::instance().Init(Transition::TransitionFadeOut, this, 32, true);
 	Scene::Pop();
 }
 
@@ -248,6 +244,6 @@ void Scene_Title::OnTitleSpriteReady(FileRequestResult* result) {
 	title->SetBitmap(Cache::Title(result->file));
 }
 
-void Scene_Title::OnGameLoad() {
+void Scene_Title::OnGameStart() {
 	restart_title_cache = true;
 }

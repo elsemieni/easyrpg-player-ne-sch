@@ -71,6 +71,10 @@
 #include "utils.h"
 #include "version.h"
 #include "game_quit.h"
+#include "scene_title.h"
+#include "instrumentation.h"
+#include "scope_guard.h"
+#include "baseui.h"
 
 #ifndef EMSCRIPTEN
 // This is not used on Emscripten.
@@ -84,6 +88,7 @@ namespace Player {
 	bool hide_title_flag;
 	bool window_flag;
 	bool fps_flag;
+	bool fps_render_window = false;
 	bool new_game_flag;
 	int load_game_id;
 	int party_x_position;
@@ -167,10 +172,6 @@ void Player::Init(int argc, char *argv[]) {
 	// Create initial directory structure in our private area
 	// Retrieve save directory from persistent storage
 	EM_ASM(({
-
-		FS.mkdir("easyrpg");
-		FS.chdir("easyrpg");
-
 		var dirs = ['Backdrop', 'Battle', 'Battle2', 'BattleCharSet', 'BattleWeapon', 'CharSet', 'ChipSet', 'FaceSet', 'Frame', 'GameOver', 'Monster', 'Movie', 'Music', 'Panorama', 'Picture', 'Sound', 'System', 'System2', 'Title', 'Save'];
 		dirs.forEach(function(dir) { FS.mkdir(dir) });
 
@@ -199,7 +200,14 @@ void Player::Init(int argc, char *argv[]) {
 	Input::Init(replay_input_path, record_input_path);
 }
 
+namespace {
+// FIXME: Refactor the main loop and get rid of these global objects.
+Instrumentation::FrameScope iframe_scope(false);
+bool did_sleep_this_frame = false;
+}
+
 void Player::Run() {
+	Instrumentation::Init("EasyRPG-Player");
 	Scene::Push(std::shared_ptr<Scene>(static_cast<Scene*>(new Scene_Logo())));
 	Graphics::UpdateSceneCallback();
 
@@ -209,12 +217,9 @@ void Player::Run() {
 	FrameReset();
 
 	// Main loop
-#ifdef EMSCRIPTEN
-	emscripten_set_main_loop(Player::MainLoop, 0, 0);
-#elif defined(USE_LIBRETRO)
-	// Do nothing
-#else
-	while (Graphics::IsTransitionPending() || Scene::instance->type != Scene::Null) {
+	// libretro invokes the MainLoop through a retro_run-callback
+#ifndef USE_LIBRETRO
+	while (Transition::instance().IsActive() || Scene::instance->type != Scene::Null) {
 #  if defined(_3DS)
 		if (!aptMainLoop())
 			Exit();
@@ -224,16 +229,23 @@ void Player::Run() {
 #  endif
 		MainLoop();
 	}
+	iframe_scope.End();
 #endif
 }
 
 void Player::MainLoop() {
+	did_sleep_this_frame = false;
+	iframe_scope.Begin();
+
 	Scene::instance->MainFunction();
 
 	Scene::old_instances.clear();
 
-	if (!Graphics::IsTransitionPending() && Scene::instance->type == Scene::Null) {
+	if (!Transition::instance().IsActive() && Scene::instance->type == Scene::Null) {
 		Exit();
+	}
+	if (!did_sleep_this_frame) {
+		iframe_scope.End();
 	}
 }
 
@@ -311,7 +323,7 @@ void Player::Update(bool update_scene) {
 	int speed_modifier = GetSpeedModifier();
 
 	for (int i = 0; i < speed_modifier; ++i) {
-		auto was_transition_pending = Graphics::IsTransitionPending();
+		auto was_transition_pending = Transition::instance().IsActive();
 		Graphics::Update();
 		// If we aren't waiting on a transition, but we are waiting for scene delay.
 		if (!was_transition_pending) {
@@ -338,9 +350,6 @@ void Player::Update(bool update_scene) {
 
 	BitmapRef disp = DisplayUi->GetDisplaySurface();
 
-#ifdef EMSCRIPTEN
-	Graphics::Draw(*disp);
-#else
 	cur_time = (double)DisplayUi->GetTicks();
 	if (cur_time < next_frame) {
 		Graphics::Draw(*disp);
@@ -349,11 +358,13 @@ void Player::Update(bool update_scene) {
 #if !defined(USE_LIBRETRO)
 		// Still time after graphic update? Yield until it's time for next one.
 		if (cur_time < next_frame) {
-			DisplayUi->Sleep((uint32_t)(next_frame - cur_time));
+			iframe_scope.End();
+			did_sleep_this_frame = true;
+			DisplayUi->Sleep(static_cast<uint32_t>(next_frame - cur_time));
+			iframe_scope.Begin();
 		}
 #endif
 	}
-#endif
 }
 
 void Player::IncFrame() {
@@ -382,8 +393,6 @@ int Player::GetFrames() {
 
 void Player::Exit() {
 #ifdef EMSCRIPTEN
-	emscripten_cancel_main_loop();
-
 	BitmapRef surface = DisplayUi->GetDisplaySurface();
 	std::string message = "It's now safe to turn off\n      your browser.";
 
@@ -457,6 +466,9 @@ void Player::ParseCommandLine(int argc, char *argv[]) {
 		}
 		else if (*it == "--show-fps") {
 			fps_flag = true;
+		}
+		else if (*it == "--fps-render-window") {
+			fps_render_window = true;
 		}
 		else if (*it == "--enable-mouse") {
 			mouse_flag = true;
@@ -883,6 +895,11 @@ static void OnMapSaveFileReady(FileRequestResult*) {
 void Player::LoadSavegame(const std::string& save_name) {
 	Output::Debug("Loading Save %s", FileFinder::GetPathInsidePath(Main_Data::GetSavePath(), save_name).c_str());
 
+	auto title_scene = Scene::Find(Scene::Title);
+	if (title_scene) {
+		static_cast<Scene_Title*>(title_scene.get())->OnGameStart();
+	}
+
 	std::unique_ptr<RPG::Save> save = LSD_Reader::Load(save_name, encoding);
 
 	if (!save.get()) {
@@ -959,6 +976,10 @@ static void OnMapFileReady(FileRequestResult*) {
 
 void Player::SetupNewGame() {
 	Game_System::ResetFrameCounter();
+	auto title = Scene::Find(Scene::Title);
+	if (title) {
+		static_cast<Scene_Title*>(title.get())->OnGameStart();
+	}
 
 	Main_Data::game_party->SetupNewGame();
 	SetupPlayerSpawn();
@@ -1082,6 +1103,7 @@ Options:
                             rpg2k3e    - RPG Maker 2003 (English release) engine
       --fullscreen         Start in fullscreen mode.
       --show-fps           Enable frames per second counter.
+      --fps-render-window  Render the frames per second counter in windowed mode.
       --enable-mouse       Use mouse click for decision and scroll wheel for lists
       --enable-touch       Use one/two finger tap for decision/cancel
       --hide-title         Hide the title background image and center the

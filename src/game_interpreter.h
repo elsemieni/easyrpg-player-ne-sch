@@ -45,6 +45,8 @@ namespace RPG {
 class Game_Interpreter
 {
 public:
+	static Game_Interpreter& GetForegroundInterpreter();
+
 	Game_Interpreter(bool _main_flag = false);
 #ifndef EMSCRIPTEN
 	// No idea why but emscripten will complain about a missing destructor when
@@ -163,8 +165,10 @@ protected:
 
 	/**
 	 * Triggers a game over when all party members are dead.
+	 *
+	 * @return true if game over was started.
 	 */
-	void CheckGameOver();
+	bool CheckGameOver();
 
 	bool CommandOptionGeneric(RPG::EventCommand const& com, int option_sub_idx, std::initializer_list<int> next);
 
@@ -251,7 +255,6 @@ protected:
 	bool CommandToggleFullscreen(RPG::EventCommand const& com);
 
 	virtual bool DefaultContinuation(RPG::EventCommand const& com);
-	virtual bool ContinuationOpenShop(RPG::EventCommand const& com);
 	virtual bool ContinuationEnemyEncounter(RPG::EventCommand const& com);
 
 	int DecodeInt(std::vector<int32_t>::const_iterator& it);
@@ -261,6 +264,8 @@ protected:
 	void SetSubcommandIndex(int indent, int idx);
 	uint8_t& ReserveSubcommandIndex(int indent);
 	int GetSubcommandIndex(int indent) const;
+
+	void ForegroundTextPush(PendingMessage pm);
 
 	FileRequestBinding request_id;
 	enum class Keys {

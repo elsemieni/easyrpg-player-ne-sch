@@ -28,7 +28,6 @@
 #include "baseui.h"
 #include "spriteset_battle.h"
 #include "player.h"
-#include "game_temp.h"
 #include "options.h"
 #include "drawable_mgr.h"
 
@@ -74,14 +73,7 @@ void BattleAnimation::Update() {
 	UpdateScreenFlash();
 	UpdateTargetFlash();
 
-	auto flash_color = Main_Data::game_screen->GetFlashColor();
-	if (flash_color.alpha > 0) {
-		Sprite::Flash(flash_color, 0);
-	} else {
-		Sprite::Flash(Color(), 0);
-	}
-
-	Sprite::Update();
+	SetFlashEffect(Main_Data::game_screen->GetFlashColor());
 
 	frame++;
 }
@@ -166,7 +158,7 @@ void BattleAnimation::ProcessAnimationTiming(const RPG::AnimationTiming& timing)
 	ProcessAnimationFlash(timing);
 
 	// Shake (only happens in battle).
-	if (Game_Temp::battle_running) {
+	if (Game_Battle::IsBattleRunning()) {
 		switch (timing.screen_shake) {
 		case RPG::AnimationTiming::ScreenShake_nothing:
 			break;
@@ -255,15 +247,11 @@ void BattleAnimationMap::Draw(Bitmap& dst) {
 }
 
 void BattleAnimationMap::DrawGlobal(Bitmap& dst) {
-	// The animations are played at the vertices of a regular grid,
-	// 20 tiles wide by 10 tiles high, independant of the map.
-	const int x_stride = 20 * TILE_SIZE;
-	const int y_stride = 10 * TILE_SIZE;
-	int x_offset = Main_Data::game_screen->GetPanX() / TILE_SIZE;
-	int y_offset = Main_Data::game_screen->GetPanY() / TILE_SIZE;
-	for (int y = 0; y != 3; ++y) {
-		for (int x = 0; x != 3; ++x) {
-			DrawAt(dst, x_stride*x + x_offset, y_stride*y + y_offset);
+	auto rect = Main_Data::game_screen->GetScreenEffectsRect();
+
+	for (int y = -1; y < 2; ++y) {
+		for (int x = -1; x < 2; ++x) {
+			DrawAt(dst, rect.width * x + rect.x, rect.height * y + rect.y);
 		}
 	}
 }
@@ -314,11 +302,8 @@ void BattleAnimationBattle::Draw(Bitmap& dst) {
 	}
 }
 void BattleAnimationBattle::FlashTargets(int r, int g, int b, int p) {
-	auto color = MakeFlashColor(r, g, b, p);
 	for (auto& battler: battlers) {
-		Sprite_Battler* sprite = Game_Battle::GetSpriteset().FindBattler(battler);
-		if (sprite)
-			sprite->Flash(color, 0);
+		battler->Flash(r, g, b, p, 0);
 	}
 }
 

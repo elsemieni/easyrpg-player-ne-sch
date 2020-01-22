@@ -2,6 +2,11 @@ cmake_minimum_required(VERSION 3.7)
 
 project(EasyRPG_Player VERSION 0.6.1 LANGUAGES CXX)
 
+# Extra CMake Module files
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/builds/cmake/Modules")
+include(ConfigureWindows)
+include(PlayerFindPackage)
+
 # C++14 is required
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -84,6 +89,7 @@ add_library(${PROJECT_NAME}
 	src/exfont.h
 	src/filefinder.cpp
 	src/filefinder.h
+	src/flash.h
 	src/font.cpp
 	src/font.h
 	src/fps_overlay.cpp
@@ -164,6 +170,8 @@ add_library(${PROJECT_NAME}
 	src/input.h
 	src/input_source.cpp
 	src/input_source.h
+	src/instrumentation.cpp
+	src/instrumentation.h
 	src/keys.h
 	src/logo.h
 	src/main_data.cpp
@@ -185,6 +193,8 @@ add_library(${PROJECT_NAME}
 	src/pixman_image_ptr.h
 	src/plane.cpp
 	src/plane.h
+	src/platform.cpp
+	src/platform.h
 	src/player.cpp
 	src/player.h
 	src/psp2_ui.cpp
@@ -249,6 +259,7 @@ add_library(${PROJECT_NAME}
 	src/scene_title.h
 	src/screen.cpp
 	src/screen.h
+	src/shake.h
 	src/shinonome_gothic.h
 	src/shinonome_mincho.h
 	src/sprite_airshipshadow.cpp
@@ -375,12 +386,6 @@ include(CMakeDependentOption)
 
 # Include directories
 target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-
-# Extra CMake Module files
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/builds/cmake/Modules")
-
-include(ConfigureWindows)
-include(PlayerFindPackage)
 
 # Platform setup
 set(PLAYER_TARGET_PLATFORM "SDL2" CACHE STRING "Platform to compile for. Options: SDL2 libretro")
@@ -773,6 +778,18 @@ if(PLAYER_ENABLE_TESTS)
 	add_dependencies(check_player test_runner_player)
 	add_dependencies(check check_player)
 endif()
+
+# Instrumentation framework
+set(PLAYER_ENABLE_INSTRUMENTATION "OFF" CACHE STRING "Build performance instrumentation hooks")
+set_property(CACHE PLAYER_ENABLE_INSTRUMENTATION PROPERTY STRINGS OFF VTune)
+if (NOT ${PLAYER_ENABLE_INSTRUMENTATION} STREQUAL "OFF")
+	target_compile_definitions(${PROJECT_NAME} PUBLIC PLAYER_INSTRUMENTATION=${PLAYER_ENABLE_INSTRUMENTATION})
+	if (${PLAYER_ENABLE_INSTRUMENTATION} STREQUAL "VTune")
+		find_package(VTune REQUIRED)
+		target_link_libraries(${PROJECT_NAME} VTune::ITT)
+	endif()
+endif()
+
 
 # Benchmarks
 option(PLAYER_ENABLE_BENCHMARKS "Build benchmarks" OFF)

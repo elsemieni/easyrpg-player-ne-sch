@@ -24,7 +24,6 @@
 #include "output.h"
 #include "player.h"
 #include "transition.h"
-#include "graphics.h"
 #include "game_battlealgorithm.h"
 #include "game_message.h"
 #include "game_system.h"
@@ -52,6 +51,13 @@ Scene_Battle::Scene_Battle() :
 {
 	Scene::type = Scene::Battle;
 	Game_Temp::battle_result = Game_Temp::BattleAbort;
+
+	// Face graphic is cleared when battle scene is created.
+	// Even if the battle gets interrupted by another scene and never starts.
+	Game_Message::ClearFace();
+	Game_System::SetBeforeBattleMusic(Game_System::GetCurrentBGM());
+	Game_System::SePlay(Game_System::GetSystemSE(Game_System::SFX_BeginBattle));
+	Game_System::BgmPlay(Game_System::GetSystemBGM(Game_System::BGM_Battle));
 }
 
 Scene_Battle::~Scene_Battle() {
@@ -98,8 +104,6 @@ void Scene_Battle::Start() {
 	auto_battle = false;
 	enemy_action = NULL;
 
-	Game_System::BgmPlay(Game_System::GetSystemBGM(Game_System::BGM_Battle));
-
 	CreateUi();
 
 	SetState(State_Start);
@@ -117,7 +121,7 @@ void Scene_Battle::TransitionIn(SceneType prev_scene) {
 		Scene::TransitionIn(prev_scene);
 		return;
 	}
-	Graphics::GetTransition().Init((Transition::TransitionType)Game_System::GetTransition(Game_System::Transition_BeginBattleShow), this, 32);
+	Transition::instance().Init((Transition::TransitionType)Game_System::GetTransition(Game_System::Transition_BeginBattleShow), this, 32);
 }
 
 void Scene_Battle::TransitionOut(SceneType next_scene) {
@@ -127,11 +131,11 @@ void Scene_Battle::TransitionOut(SceneType next_scene) {
 		Scene::TransitionOut(next_scene);
 		return;
 	}
-	Graphics::GetTransition().Init((Transition::TransitionType)Game_System::GetTransition(Game_System::Transition_EndBattleErase), this, 32, true);
+	Transition::instance().Init((Transition::TransitionType)Game_System::GetTransition(Game_System::Transition_EndBattleErase), this, 32, true);
 }
 
-void Scene_Battle::DrawBackground() {
-	DisplayUi->CleanDisplay();
+void Scene_Battle::DrawBackground(Bitmap& dst) {
+	dst.Clear();
 }
 
 void Scene_Battle::CreateUi() {
@@ -168,13 +172,26 @@ void Scene_Battle::Update() {
 	item_window->Update();
 	skill_window->Update();
 	target_window->Update();
+
+	const int timer1 = Main_Data::game_party->GetTimerSeconds(Game_Party::Timer1);
+	const int timer2 = Main_Data::game_party->GetTimerSeconds(Game_Party::Timer2);
+
+	// Update Battlers
+	std::vector<Game_Battler*> battlers;
+	Main_Data::game_party->GetBattlers(battlers);
+	Main_Data::game_enemyparty->GetBattlers(battlers);
+	for (auto* b : battlers) {
+		b->UpdateBattle();
+	}
+
+	// Screen Effects
 	Game_Message::Update();
+	Main_Data::game_party->UpdateTimers();
+	Main_Data::game_screen->Update(true);
+	Game_Battle::UpdateAnimation();
 
 	// Query Timer before and after update.
 	// If it reached zero during update was a running battle timer.
-	int timer1 = Main_Data::game_party->GetTimerSeconds(Game_Party::Timer1);
-	int timer2 = Main_Data::game_party->GetTimerSeconds(Game_Party::Timer2);
-	Main_Data::game_party->UpdateTimers();
 	if ((Main_Data::game_party->GetTimerSeconds(Game_Party::Timer1) == 0 && timer1 > 0) ||
 		(Main_Data::game_party->GetTimerSeconds(Game_Party::Timer2) == 0 && timer2 > 0)) {
 		Scene::Pop();
@@ -182,20 +199,22 @@ void Scene_Battle::Update() {
 
 	bool events_finished = Game_Battle::UpdateEvents();
 
-	if (GetRequestedScene() == Gameover) {
-		SetRequestedScene(Null);
-		Scene::Push(std::make_shared<Scene_Gameover>());
+	auto call = TakeRequestedScene();
+	if (call && call->type == Scene::Gameover) {
+		Scene::Push(std::move(call));
 	}
 
 	if (!Game_Message::IsMessageVisible() && events_finished) {
 		ProcessActions();
 		ProcessInput();
 	}
+	UpdateCursors();
 
 	auto& interp = Game_Battle::GetInterpreter();
 
 	bool events_running = interp.IsRunning();
-	Game_Battle::Update();
+	Game_Battle::RunEvents();
+	Game_Battle::UpdateGraphics();
 	if (events_running && !interp.IsRunning()) {
 		// If an event that changed status finishes without displaying a message window,
 		// we need this so it can update automatically the status_window
@@ -628,3 +647,8 @@ void Scene_Battle::CallDebug() {
 	}
 }
 
+void Scene_Battle::SelectionFlash(Game_Battler* battler) {
+	if (battler) {
+		battler->Flash(31, 31, 31, 24, 16);
+	}
+}

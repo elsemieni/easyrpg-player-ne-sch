@@ -151,14 +151,6 @@ public:
 		Flag_ReadOnly = 1 << 16
 	};
 
-	enum TileOpacity {
-		// Image is full opaque and can be blitted fast
-		Opaque,
-		// Image has alpha and needs an alpha blit
-		Partial,
-		// Image is complately transparent
-		Transparent
-	};
 
 	/**
 	 * Provides opacity information about the image.
@@ -166,18 +158,18 @@ public:
 	 *
 	 * @return opacity information
 	 */
-	TileOpacity GetOpacity() const;
+	ImageOpacity GetImageOpacity() const;
 
 	/**
 	 * Provides opacity information about a tile on a tilemap.
 	 * This influences the selected operator when blitting a tile.
 	 *
-	 * @param row tile row
-	 * @param col tile col
+	 * @param x tile x coordinate
+	 * @param y tile y coordinate
 	 *
 	 * @return opacity information
 	 */
-	TileOpacity GetTileOpacity(int row, int col) const;
+	ImageOpacity GetTileOpacity(int x, int y) const;
 
 	/**
 	 * Writes PNG converted bitmap to output stream.
@@ -291,6 +283,19 @@ public:
 	void TiledBlit(int ox, int oy, Rect const& src_rect, Bitmap const& src, Rect const& dst_rect, Opacity const& opacity);
 
 	/**
+	 * Blits source bitmap to this one, making clones across the edges if src crossed a boundary of this.
+	 *
+	 * @param x x position.
+	 * @param y y position.
+	 * @param src source bitmap.
+	 * @param src_rect source bitmap rect.
+	 * @param mirror_x Blit a clone in x direction
+	 * @param mirror_Y BLit a clone in y direction
+	 * @param opacity opacity for blending with bitmap.
+	 */
+	void EdgeMirrorBlit(int x, int y, Bitmap const& src, Rect const& src_rect, bool mirror_x, bool mirror_y, Opacity const& opacity);
+
+	/**
 	 * Blits source bitmap stretched to this one.
 	 *
 	 * @param src source bitmap.
@@ -323,19 +328,7 @@ public:
 	void FlipBlit(int x, int y, Bitmap const& src, Rect const& src_rect, bool horizontal, bool vertical, Opacity const& opacity);
 
 	/**
-	 * Blits source bitmap scaled, rotated and translated.
-	 *
-	 * @param dst_rect destination rect.
-	 * @param src source bitmap.
-	 * @param src_rect source bitmap rect.
-	 * @param inv transformation matrix from destination coordinates
-	 *            to source coordinates.
-	 * @param opacity opacity for blending with bitmap.
-	 */
-	void TransformBlit(Rect const& dst_rect, Bitmap const& src, Rect const& src_rect, const Transform& inv, Opacity const& opacity);
-
-	/**
-	 * Blits source bitmap with waver effect.
+	 * Blits source bitmap with waver, zoom, and opacity effects.
 	 *
 	 * @param x x position.
 	 * @param y y position.
@@ -348,6 +341,43 @@ public:
 	 * @param opacity opacity.
 	 */
 	void WaverBlit(int x, int y, double zoom_x, double zoom_y, Bitmap const& src, Rect const& src_rect, int depth, double phase, Opacity const& opacity);
+
+	/**
+	 * Blits source bitmap with rotation, zoom, and opacity effects.
+	 *
+	 * @param x x position.
+	 * @param y y position.
+	 * @param ox source origin x.
+	 * @param oy source origin y.
+	 * @param src source bitmap.
+	 * @param src_rect source bitmap rect.
+	 * @param angle rotation angle in radians.
+	 * @param zoom_x x scale factor.
+	 * @param zoom_y y scale factor.
+	 * @param opacity opacity.
+	 */
+	void RotateZoomOpacityBlit(int x, int y, int ox, int oy,
+			Bitmap const& src, Rect const& src_rect,
+			double angle, double zoom_x, double zoom_y, Opacity const& opacity);
+
+	/**
+	 * Blits source bitmap with zoom and opacity scaling.
+	 *
+	 * @param x x position.
+	 * @param y y position.
+	 * @param ox source origin x.
+	 * @param oy source origin y.
+	 * @param src source bitmap.
+	 * @param src_rect source bitmap rectangle.
+	 * @param zoom_x x scale factor.
+	 * @param zoom_y y scale factor.
+	 * @param opacity opacity.
+	 */
+	void ZoomOpacityBlit(int x, int y, int ox, int oy,
+						 Bitmap const& src, Rect const& src_rect,
+						 double zoom_x, double zoom_y,
+						 Opacity const& opacity);
+
 
 	/**
 	 * Fills entire bitmap with color.
@@ -414,11 +444,10 @@ public:
 	/**
 	 * Flips the bitmap pixels.
 	 *
-	 * @param dst_rect the rectangle to flip.
 	 * @param horizontal flip horizontally (mirror).
 	 * @param vertical flip vertically.
 	 */
-	void Flip(const Rect& dst_rect, bool horizontal, bool vertical);
+	void Flip(bool horizontal, bool vertical);
 
 	/**
 	 * Blits source bitmap to this one through a mask bitmap.
@@ -500,13 +529,14 @@ public:
 	int bpp() const;
 	int pitch() const;
 
-protected:
-	TileOpacity CheckOpacity(Rect const& rect);
+	ImageOpacity ComputeImageOpacity() const;
+	ImageOpacity ComputeImageOpacity(Rect rect) const;
 
+protected:
 	DynamicFormat format;
 
-	std::vector<std::vector<TileOpacity>> tile_opacity;
-	TileOpacity opacity = Partial;
+	ImageOpacity image_opacity = ImageOpacity::Partial;
+	TileOpacity tile_opacity;
 	Color bg_color, sh_color;
 
 	friend void Text::Draw(Bitmap& dest, int x, int y, int color, FontRef font, std::string const& text, Text::Alignment align);
@@ -538,36 +568,22 @@ protected:
 
 	pixman_op_t GetOperator(pixman_image_t* mask = nullptr) const;
 	bool read_only = false;
-
-private:
-	/**
-	 * Blits source bitmap with transformation and opacity scaling.
-	 *
-	 * @param fwd forward (src->dst) transformation matrix.
-	 * @param src source bitmap.
-	 * @param src_rect source bitmap rectangle.
-	 * @param opacity opacity.
-	 */
-	void RotateZoomOpacityBlit(const Transform &fwd, Bitmap const& src, Rect const& src_rect,
-							   Opacity const& opacity);
-
-	/**
-	 * Blits source bitmap with zoom and opacity scaling.
-	 *
-	 * @param x x position.
-	 * @param y y position.
-	 * @param ox source origin x.
-	 * @param oy source origin y.
-	 * @param src source bitmap.
-	 * @param src_rect source bitmap rectangle.
-	 * @param zoom_x x scale factor.
-	 * @param zoom_y y scale factor.
-	 * @param opacity opacity.
-	 */
-	void ZoomOpacityBlit(int x, int y, int ox, int oy,
-						 Bitmap const& src, Rect const& src_rect,
-						 double zoom_x, double zoom_y,
-						 Opacity const& opacity);
 };
+
+inline ImageOpacity Bitmap::GetImageOpacity() const {
+	return image_opacity;
+}
+
+inline ImageOpacity Bitmap::GetTileOpacity(int x, int y) const {
+	return !tile_opacity.Empty() ? tile_opacity.Get(x, y) : ImageOpacity::Partial;
+}
+
+inline Color Bitmap::GetBackgroundColor() const {
+	return bg_color;
+}
+
+inline Color Bitmap::GetShadowColor() const {
+	return sh_color;
+}
 
 #endif

@@ -56,8 +56,14 @@ class PendingMessage {
 		int GetNumberInputDigits() const { return num_input_digits; }
 		int GetNumberInputVariable() const { return num_input_variable; }
 		int GetNumberInputStartLine() const { return NumLines(); }
+
+		void SetEnableFace(bool value) { enable_face = value; }
+		bool IsFaceEnabled() const { return enable_face; }
 	private:
 		int PushLineImpl(std::string msg);
+
+		std::string ApplyTextInsertingCommands(std::string input, uint32_t escape_char);
+
 	private:
 		ChoiceContinuation choice_continuation;
 		std::vector<std::string> texts;
@@ -69,6 +75,7 @@ class PendingMessage {
 		bool word_wrapped = false;
 		bool choice_reset_color = false;
 		bool show_gold_window = false;
+		bool enable_face = true;
 };
 
 

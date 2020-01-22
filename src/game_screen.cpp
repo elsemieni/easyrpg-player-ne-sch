@@ -17,6 +17,7 @@
 
 // Headers
 #define _USE_MATH_DEFINES
+#include <cmath>
 #include "bitmap.h"
 #include "data.h"
 #include "player.h"
@@ -25,14 +26,15 @@
 #include "game_screen.h"
 #include "game_system.h"
 #include "game_variables.h"
-#include "main_data.h"
+#include "game_map.h"
 #include "output.h"
 #include "utils.h"
 #include "options.h"
 #include "reader_util.h"
-#include <cmath>
-
-static constexpr int kShakeContinuousTimeStart = 65535;
+#include "scene.h"
+#include "weather.h"
+#include "flash.h"
+#include "shake.h"
 
 static int GetDefaultNumberOfPictures() {
 	if (Player::IsEnglish()) {
@@ -50,46 +52,58 @@ static int GetDefaultNumberOfPictures() {
 	return 0;
 }
 
-Game_Screen::Game_Screen() :
-	data(Main_Data::game_data.screen)
+Game_Screen::Game_Screen()
 {
-	Reset();
+}
+
+Game_Screen::~Game_Screen() {
 }
 
 void Game_Screen::SetupNewGame() {
-	Reset();
+	data = {};
+	weather = std::make_unique<Weather>();
+	OnWeatherChanged();
 
 	// Pre-allocate pictures depending on detected game version.
 	// This makes our savegames match RPG_RT.
 	PreallocatePictureData(GetDefaultNumberOfPictures());
 }
 
-void Game_Screen::SetupFromSave() {
-	CreatePicturesFromSave();
+void Game_Screen::SetupFromSave(RPG::SaveScreen screen, std::vector<RPG::SavePicture> save_pics) {
+	data = std::move(screen);
 
-	if (Main_Data::game_data.screen.battleanim_active) {
-		ShowBattleAnimation(Main_Data::game_data.screen.battleanim_id,
-				Main_Data::game_data.screen.battleanim_target,
-				Main_Data::game_data.screen.battleanim_global,
-				Main_Data::game_data.screen.battleanim_frame);
-	}
-}
-
-void Game_Screen::CreatePicturesFromSave() {
-	const auto& save_pics = Main_Data::game_data.pictures;
+	weather = std::make_unique<Weather>();
 
 	pictures.clear();
 	pictures.reserve(save_pics.size());
 
-	while (pictures.size() < save_pics.size()) {
-		pictures.emplace_back(pictures.size() + 1);
+	weather = std::make_unique<Weather>();
+	OnWeatherChanged();
+
+	for (auto& sp: save_pics) {
+		pictures.emplace_back(sp.ID);
+		pictures.back().SetupFromSave(std::move(sp));
+	}
+
+	if (data.battleanim_active) {
+		ShowBattleAnimation(data.battleanim_id,
+				data.battleanim_target,
+				data.battleanim_global,
+				data.battleanim_frame);
 	}
 }
 
-void Game_Screen::Reset() {
-	for (auto& pic : pictures) {
-		pic.Erase(false);
+std::vector<RPG::SavePicture> Game_Screen::GetPictureSaveData() const {
+	std::vector<RPG::SavePicture> save_pics;
+	save_pics.reserve(pictures.size());
+	for (auto& pic: pictures) {
+		save_pics.push_back(pic.GetSaveData());
 	}
+	return save_pics;
+}
+
+void Game_Screen::OnMapChange() {
+	Game_Picture::OnMapChange(pictures);
 
 	data.flash_red = 0;
 	data.flash_green = 0;
@@ -118,34 +132,34 @@ void Game_Screen::Reset() {
 	animation.reset();
 }
 
-void Game_Screen::PreallocatePictureData(int id) {
-	if (id <= (int)pictures.size()) {
-		return;
+void Game_Screen::OnBattleStart() {
+	auto battle_scene = Scene::Find(Scene::Battle);
+	assert(battle_scene);
+	auto map_scene = Scene::Find(Scene::Map);
+
+	if (map_scene) {
+		// FIXME: O(n) for every sprite. Can we batch this faster?
+		map_scene->GetDrawableList().Take(weather.get());
+	}
+	battle_scene->GetDrawableList().Append(weather.get());
+
+	Game_Picture::OnBattleStart(pictures, map_scene.get(), *battle_scene);
+}
+
+void Game_Screen::OnBattleEnd() {
+	auto map_scene = Scene::Find(Scene::Map);
+	if (map_scene) {
+		map_scene->GetDrawableList().Append(weather.get());
 	}
 
-	const auto old_size = Main_Data::game_data.pictures.size();
+	Game_Picture::OnBattleEnd(pictures, map_scene.get());
+}
 
-	// Some games use more pictures then RPG_RT officially supported
-	Main_Data::game_data.pictures.resize(id);
-
-	for (auto i = old_size; i < Main_Data::game_data.pictures.size(); ++i) {
-		Main_Data::game_data.pictures[i].ID = i + 1;
-	}
-
+void Game_Screen::DoPreallocatePictureData(int id) {
 	pictures.reserve(id);
 	while (static_cast<int>(pictures.size()) < id) {
 		pictures.emplace_back(pictures.size() + 1);
 	}
-}
-
-Game_Picture* Game_Screen::GetPicture(int id) {
-	if (id <= 0) {
-		return NULL;
-	}
-
-	PreallocatePictureData(id);
-
-	return &pictures[id - 1];
 }
 
 void Game_Screen::TintScreen(int r, int g, int b, int s, int tenths) {
@@ -190,7 +204,7 @@ void Game_Screen::FlashEnd() {
 }
 
 void Game_Screen::FlashMapStepDamage() {
-	Main_Data::game_screen->FlashOnce(31, 10, 10, 20, 6);
+	FlashOnce(31, 10, 10, 20, 6);
 }
 
 void Game_Screen::ShakeOnce(int power, int speed, int tenths) {
@@ -205,7 +219,7 @@ void Game_Screen::ShakeOnce(int power, int speed, int tenths) {
 void Game_Screen::ShakeBegin(int power, int speed) {
 	data.shake_strength = power;
 	data.shake_speed = speed;
-	data.shake_time_left = kShakeContinuousTimeStart;
+	data.shake_time_left = Shake::kShakeContinuousTimeStart;
 	data.shake_continuous = true;
 	// Shake position is not reset in RPG_RT, so that multiple shakes
 	// which interrupt each other flow smoothly.
@@ -222,9 +236,9 @@ void Game_Screen::SetWeatherEffect(int type, int strength) {
 	// This causes issues in the rendering (weather rendered too fast)
 	if (data.weather != type ||
 		data.weather_strength != strength) {
-		StopWeather();
 		data.weather = type;
 		data.weather_strength = strength;
+		OnWeatherChanged();
 	}
 }
 
@@ -237,14 +251,6 @@ void Game_Screen::PlayMovie(const std::string& filename,
 	movie_res_y = res_y;
 }
 
-int Game_Screen::GetPanX() {
-	return data.pan_x;
-}
-
-int Game_Screen::GetPanY() {
-	return data.pan_y;
-}
-
 static double interpolate(double d, double x0, double x1)
 {
 	return (x0 * (d - 1) + x1) / d;
@@ -252,45 +258,139 @@ static double interpolate(double d, double x0, double x1)
 
 void Game_Screen::StopWeather() {
 	data.weather = Weather_None;
-	snowflakes.clear();
+	OnWeatherChanged();
 }
 
-void Game_Screen::InitSnowRain() {
-	if (!snowflakes.empty())
-		return;
+void Game_Screen::OnWeatherChanged() {
+	particles.clear();
 
-	static const int num_snowflakes[3] = {50, 100, 150};
+	switch (data.weather) {
+		case Weather_Rain:
+			InitRainSnow(80);
+			break;
+		case Weather_Snow:
+			InitRainSnow(255);
+			break;
+		case Weather_Fog:
+			break;
+		case Weather_Sandstorm:
+			InitSand();
+			break;
+	}
 
-	for (int i = 0; i < num_snowflakes[data.weather_strength]; i++) {
-		Snowflake f;
-		f.x = (short) Utils::GetRandomNumber(0, 440);
-		f.y = (uint8_t) Utils::GetRandomNumber(0, 255);
-		f.life = (uint8_t) Utils::GetRandomNumber(0, 255);
-		snowflakes.push_back(f);
+	if (weather) {
+		weather->OnWeatherChanged();
 	}
 }
 
-void Game_Screen::UpdateSnowRain(int speed) {
-	std::vector<Snowflake>::iterator it;
+void Game_Screen::InitRainSnow(int lifetime) {
+	const auto num_particles = std::min(1 << (data.weather_strength + 4), 128);
+	auto rect = GetScreenEffectsRect();
 
-	for (it = snowflakes.begin(); it != snowflakes.end(); ++it) {
-		Snowflake& f = *it;
-		f.y += (uint8_t)speed;
-		f.life -= 5;
-		if (f.life < 10)
-			f.life = 255;
+	particles.resize(num_particles);
+	for (auto& p: particles) {
+		p.x = Utils::GetRandomNumber(0, rect.width);
+		p.y = Utils::GetRandomNumber(0, rect.height);
+		p.life = Utils::GetRandomNumber(0, lifetime);
 	}
 }
 
-int Game_Screen::AnimateShake(int strength, int speed, int time_left, int position) {
-	int amplitude = 1 + 2 * strength;
-	int newpos = amplitude * sin((time_left * 4 * (speed + 2)) % 256 * M_PI / 128);
-	int cutoff = (speed * amplitude / 8) + 1;
+void Game_Screen::UpdateRain() {
+	auto rect = GetScreenEffectsRect();
 
-	return Utils::Clamp<int>(newpos, position - cutoff, position + cutoff);
+	for (auto& p: particles) {
+		if (p.life > 0) {
+			p.y += 4;
+			p.x -= 1;
+			p.life -= 8;
+		} else {
+			p.x = Utils::GetRandomNumber(0, rect.width);
+			p.y = Utils::GetRandomNumber(0, rect.height);
+			p.life = 80;
+		}
+	}
 }
 
-void Game_Screen::Update() {
+void Game_Screen::UpdateSnow() {
+	auto rect = GetScreenEffectsRect();
+
+	for (auto& p: particles) {
+		if (p.life > 0) {
+			p.y += Utils::GetRandomNumber(2, 3);
+			p.x -= Utils::GetRandomNumber(0, 1);
+			p.life -= 8;
+		} else {
+			p.x = Utils::GetRandomNumber(0, rect.width);
+			p.y = Utils::GetRandomNumber(0, rect.height);
+			p.life = 255;
+		}
+	}
+}
+
+static constexpr int sand_acceleration = 8;
+static constexpr int sand_min_alpha = 232;
+static constexpr int sand_max_alpha = 255;
+
+void Game_Screen::InitSand() {
+	const auto num_particles = 32;
+	particles.resize(num_particles);
+
+	const int w = SCREEN_TARGET_WIDTH * 16;
+	for (auto& p: particles) {
+		auto angle = Utils::GetRandomNumber(0, 360);
+		if (angle <= 180) {
+			p.angle = angle * M_PI / 180.0;
+
+			auto n = Utils::GetRandomNumber(0, 64);
+			p.speed = n * sand_acceleration;
+			auto dist = (n + 1) * n * sand_acceleration / 2;
+
+			p.x = std::round(std::cos(p.angle) * dist) + w / 2;
+			p.y = std::round(std::sin(p.angle) * dist);
+			p.life = Utils::GetRandomNumber(sand_min_alpha, sand_min_alpha);
+		}
+	}
+}
+
+
+
+void Game_Screen::UpdateSand() {
+	const int w = SCREEN_TARGET_WIDTH * 16;
+	const int h = SCREEN_TARGET_HEIGHT * 16;
+
+	for (auto& p: particles) {
+		if (p.life > 0) {
+			if (p.speed > 0) {
+				p.x += std::round(std::cos(p.angle) * p.speed);
+				p.y += std::round(std::sin(p.angle) * p.speed);
+			}
+			p.speed += sand_acceleration;
+
+			if (p.x >= w || p.x < 0 || p.y >= h) {
+				p.life = 0;
+			}
+		} else {
+			auto angle = Utils::GetRandomNumber(0, 360);
+			if (angle <= 180) {
+				p.angle = angle * M_PI / 180.0;
+				p.speed = Utils::GetRandomNumber(-sand_acceleration, 64);
+
+				auto dist = Utils::GetRandomNumber(0 * 16, 32 * 16);
+				p.x = std::round(std::cos(p.angle) * dist) + w / 2;
+				p.y = std::round(std::sin(p.angle) * dist);
+				p.life = Utils::GetRandomNumber(sand_min_alpha, sand_min_alpha);
+			}
+		}
+	}
+}
+
+void Game_Screen::UpdateScreenEffects() {
+	constexpr auto pan_limit_x = GetPanLimitX();
+	constexpr auto pan_limit_y = GetPanLimitY();
+
+	data.pan_x = (data.pan_x - Game_Map::GetScrolledRight() + pan_limit_x) % pan_limit_x;
+	data.pan_y = (data.pan_y - Game_Map::GetScrolledDown() + pan_limit_y) % pan_limit_y;
+
 	if (data.tint_time_left > 0) {
 		data.tint_current_red = interpolate(data.tint_time_left, data.tint_current_red, data.tint_finish_red);
 		data.tint_current_green = interpolate(data.tint_time_left, data.tint_current_green, data.tint_finish_green);
@@ -299,87 +399,49 @@ void Game_Screen::Update() {
 		data.tint_time_left = data.tint_time_left - 1;
 	}
 
-	if (data.flash_current_level > 0 || data.flash_continuous) {
-		if (data.flash_time_left > 0) {
-			data.flash_current_level = data.flash_current_level - (data.flash_current_level / data.flash_time_left);
-			--data.flash_time_left;
-		}
-		if (data.flash_time_left <= 0) {
-			data.flash_time_left = 0;
-			data.flash_current_level = 0;
-			if (data.flash_continuous) {
-				data.flash_time_left = flash_period;
-				data.flash_current_level = flash_sat;
-			}
-		}
-	}
+	Flash::Update(data.flash_current_level,
+			data.flash_time_left,
+			data.flash_continuous,
+			flash_period,
+			flash_sat);
 
-	if (data.shake_time_left > 0) {
-		--data.shake_time_left;
+	Shake::Update(data.shake_position,
+			data.shake_time_left,
+			data.shake_strength,
+			data.shake_speed,
+			data.shake_continuous);
+}
 
-		// This fixes a bug in RPG_RT where continuous shake would actually stop after
-		// 18m12s of gameplay.
-		if (data.shake_time_left <= 0 && data.shake_continuous) {
-			data.shake_time_left = kShakeContinuousTimeStart;
-		}
-
-		if (data.shake_time_left > 0) {
-			data.shake_position = AnimateShake(data.shake_strength, data.shake_speed, data.shake_time_left, data.shake_position);
-		} else {
-			data.shake_position = 0;
-			data.shake_time_left = 0;
-		}
-	}
-
-	for (auto& picture : pictures) {
-		picture.Update();
-	}
-
+void Game_Screen::UpdateMovie() {
 	if (!movie_filename.empty()) {
 		/* update movie */
 	}
+}
 
+void Game_Screen::UpdateWeather() {
 	switch (data.weather) {
 		case Weather_None:
 			break;
 		case Weather_Rain:
-			InitSnowRain();
-			UpdateSnowRain(4);
+			UpdateRain();
 			break;
 		case Weather_Snow:
-			InitSnowRain();
-			UpdateSnowRain(2);
+			UpdateSnow();
 			break;
 		case Weather_Fog:
 			break;
 		case Weather_Sandstorm:
+			UpdateSand();
 			break;
 	}
+}
 
+void Game_Screen::Update(bool is_battle) {
+	UpdateScreenEffects();
+	Game_Picture::Update(pictures, is_battle);
+	UpdateMovie();
+	UpdateWeather();
 	UpdateBattleAnimation();
-}
-
-Tone Game_Screen::GetTone() {
-	return Tone((int) ((data.tint_current_red) * 128 / 100),
-		(int) ((data.tint_current_green) * 128 / 100),
-		(int) ((data.tint_current_blue) * 128 / 100),
-		(int) ((data.tint_current_sat) * 128 / 100));
-}
-
-Color Game_Screen::GetFlashColor() const {
-	return MakeFlashColor(data.flash_red, data.flash_green, data.flash_blue, data.flash_current_level);
-}
-
-int Game_Screen::GetWeatherType() {
-	return data.weather;
-}
-
-int Game_Screen::GetWeatherStrength() {
-	return data.weather_strength;
-}
-
-const std::vector<Game_Screen::Snowflake>& Game_Screen::GetSnowflakes() {
-	return snowflakes;
 }
 
 int Game_Screen::ShowBattleAnimation(int animation_id, int target_id, bool global, int start_frame) {
@@ -389,11 +451,11 @@ int Game_Screen::ShowBattleAnimation(int animation_id, int target_id, bool globa
 		return 0;
 	}
 
-	Main_Data::game_data.screen.battleanim_id = animation_id;
-	Main_Data::game_data.screen.battleanim_target = target_id;
-	Main_Data::game_data.screen.battleanim_global = global;
-	Main_Data::game_data.screen.battleanim_active = true;
-	Main_Data::game_data.screen.battleanim_frame = start_frame;
+	data.battleanim_id = animation_id;
+	data.battleanim_target = target_id;
+	data.battleanim_global = global;
+	data.battleanim_active = true;
+	data.battleanim_frame = start_frame;
 
 	Game_Character* chara = Game_Character::GetCharacter(target_id, target_id);
 
@@ -411,7 +473,7 @@ int Game_Screen::ShowBattleAnimation(int animation_id, int target_id, bool globa
 void Game_Screen::UpdateBattleAnimation() {
 	if (animation) {
 		animation->Update();
-		Main_Data::game_data.screen.battleanim_frame = animation->GetFrame();
+		data.battleanim_frame = animation->GetFrame();
 		if (animation->IsDone()) {
 			CancelBattleAnimation();
 		}
@@ -419,19 +481,13 @@ void Game_Screen::UpdateBattleAnimation() {
 }
 
 void Game_Screen::CancelBattleAnimation() {
-	Main_Data::game_data.screen.battleanim_frame = animation ?
+	data.battleanim_frame = animation ?
 		animation->GetFrames() : 0;
-	Main_Data::game_data.screen.battleanim_active = false;
+	data.battleanim_active = false;
 	animation.reset();
 }
 
-bool Game_Screen::IsBattleAnimationWaiting() {
-	return (bool)animation;
-}
-
-
-void Game_Screen::UpdateGraphics() {
-	for (auto& picture: pictures) {
-		picture.UpdateSprite();
-	}
+void Game_Screen::UpdateGraphics(bool is_battle) {
+	Game_Picture::UpdateSprite(pictures, is_battle);
+	weather->SetTone(GetTone());
 }

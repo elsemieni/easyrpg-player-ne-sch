@@ -46,6 +46,7 @@ namespace Game_Battle {
 
 	std::unique_ptr<BattleAnimation> animation;
 
+	bool battle_running = false;
 	int escape_fail_count;
 
 	struct BattleTest battle_test;
@@ -68,7 +69,7 @@ void Game_Battle::Init() {
 	spriteset->Update();
 	animation.reset();
 
-	Game_Temp::battle_running = true;
+	Game_Battle::battle_running = true;
 	Main_Data::game_party->ResetTurns();
 	terminate = false;
 	escape_fail_count = 0;
@@ -91,14 +92,20 @@ void Game_Battle::Init() {
 	for (auto* actor: Main_Data::game_party->GetActors()) {
 		actor->ResetEquipmentStates(true);
 	}
+
+	Main_Data::game_screen->OnBattleStart();
 }
 
 void Game_Battle::Quit() {
+	if (!IsBattleRunning()) {
+		return;
+	}
+
 	interpreter.reset();
 	spriteset.reset();
 	animation.reset();
 
-	Game_Temp::battle_running = false;
+	Game_Battle::battle_running = false;
 	Game_Temp::battle_background = "";
 	SetTerrainId(0);
 
@@ -123,34 +130,35 @@ void Game_Battle::Quit() {
 	page_can_run.clear();
 
 	Main_Data::game_party->ResetBattle();
+	Main_Data::game_screen->OnBattleEnd();
 }
 
-void Game_Battle::Update() {
+void Game_Battle::RunEvents() {
 	interpreter->Update();
 	if (interpreter->IsAsyncPending()) {
 		terminate = true;
 		return;
 	}
+}
 
-	Main_Data::game_screen->Update();
-
-	spriteset->Update();
+void Game_Battle::UpdateAnimation() {
 	if (animation) {
 		animation->Update();
 		if (animation->IsDone()) {
 			animation.reset();
 		}
 	}
+}
 
-	std::vector<Game_Battler*> battlers;
-	(*Main_Data::game_party).GetBattlers(battlers);
-	(*Main_Data::game_enemyparty).GetBattlers(battlers);
-	for (Game_Battler* b : battlers) {
-		b->UpdateBattle();
-	}
+void Game_Battle::UpdateGraphics() {
+	spriteset->Update();
+	Main_Data::game_screen->UpdateGraphics(true);
 
 	if (need_refresh) {
 		need_refresh = false;
+		std::vector<Game_Battler*> battlers;
+		Main_Data::game_party->GetBattlers(battlers);
+		Main_Data::game_enemyparty->GetBattlers(battlers);
 		for (Game_Battler* b : battlers) {
 			Sprite_Battler* spr = spriteset->FindBattler(b);
 			if (spr) {
@@ -193,6 +201,7 @@ bool Game_Battle::CheckLose() {
 }
 
 Spriteset_Battle& Game_Battle::GetSpriteset() {
+	assert(spriteset);
 	return *spriteset;
 }
 

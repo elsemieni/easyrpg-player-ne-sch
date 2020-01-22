@@ -21,7 +21,7 @@
 // Headers
 #include <string>
 #include <vector>
-#include <stdint.h>
+#include <cstdint>
 #include "rpg_saveactor.h"
 #include "rpg_learning.h"
 #include "game_battler.h"
@@ -33,6 +33,8 @@ namespace RPG {
 	class Item;
 	class Class;
 }
+
+class PendingMessage;
 
 /**
  * Game_Actor class.
@@ -96,8 +98,19 @@ public:
 	 *
 	 * @param skill_id database skill ID.
 	 * @return If skill was learned (fails if already had the skill)
+	 * @param pm If non-null, will push the learned skill message if learned.
 	 */
-	bool LearnSkill(int skill_id);
+	bool LearnSkill(int skill_id, PendingMessage* pm);
+
+	/**
+	 * Learn all the skills from min_level to max_level
+	 *
+	 * @param min_level the minimum level to determine which skills to learn.
+	 * @param max_level the minimum level to determine which skills to learn.
+	 * @param pm If non-null, will push the learned skill messages if learned.
+	 * @return number of skills learned
+	 */
+	int LearnLevelSkills(int min_level, int max_level, PendingMessage* pm);
 
 	/**
 	 * Unlearns a skill.
@@ -245,11 +258,16 @@ public:
 	int GetSpriteIndex() const;
 
 	/**
+	 * Gets the transparency level of the actor sprite
+	 */
+	int GetSpriteTransparency() const;
+
+	/**
 	 * Gets actor face graphic filename.
 	 *
 	 * @return face graphic filename.
 	 */
-	std::string GetFaceName() const;
+	const std::string& GetFaceName() const;
 
 	/**
 	 * Gets actor face graphic index.
@@ -263,7 +281,7 @@ public:
 	 *
 	 * @return title.
 	 */
-	std::string GetTitle() const;
+	const std::string& GetTitle() const;
 
 	/**
 	 * Gets actor equipped weapon ID.
@@ -366,18 +384,18 @@ public:
 	 * experience.
 	 *
 	 * @param exp new exp.
-	 * @param level_up_message Whether to show level up message and learned skills.
+	 * @param pm If non-null, will push the level up message and learned skills.
 	 */
-	void ChangeExp(int exp, bool level_up_message);
+	void ChangeExp(int exp, PendingMessage* pm);
 
 	/**
 	 * Changes level of actor and handles experience changes, skill
 	 * learning and other attributes based on the new level.
 	 *
 	 * @param level new level.
-	 * @param level_up_message Whether to show level up message and learned skills.
+	 * @param pm If non-null, will push the level up message and learned skills.
 	 */
-	void ChangeLevel(int level, bool level_up_message);
+	void ChangeLevel(int level, PendingMessage* pm);
 
 	/**
 	 * Sets level of actor.
@@ -713,12 +731,43 @@ public:
 	 */
 	const RPG::Class* GetClass() const;
 
+	/** Describes how skills change when we change class */
+	enum ClassChangeSkillMode {
+		/** Don't change skills */
+		eSkillNoChange,
+		/** Reset skills based on level of new class */
+		eSkillReset,
+		/** Add all skills for new class */
+		eSkillAdd,
+	};
+
+	/** Describes how parameters change before we change class */
+	enum ClassChangeParamMode {
+		/** Don't change parameters */
+		eParamNoChange,
+		/** Halve all parameters */
+		eParamHalf,
+		/** Reset parameters based on level 1 of new class */
+		eParamResetLevel1,
+		/** Reset parameters based on level of new class */
+		eParamReset,
+	};
+
 	/**
 	 * Sets new Rpg2k3 hero class.
 	 *
-	 * @param class_id mew Rpg2k3 hero class.
+	 * @param class_id new Rpg2k3 hero class.
+	 * @param level change hero level to level
+	 * @param skill the skill change behavior
+	 * @param param the parameter change behavior
+	 * @param pm If non-null, will push the level up message and learned skills.
 	 */
-	void SetClass(int class_id);
+	void ChangeClass(int class_id,
+			int new_level,
+			ClassChangeSkillMode skill,
+			ClassChangeParamMode param,
+			PendingMessage* pm
+			);
 
 	/**
 	 * Gets the actor's class name as a string.
@@ -800,7 +849,7 @@ public:
 	float GetCriticalHitChance() const override;
 
 	std::string GetLevelUpMessage(int new_level) const;
-	std::string GetLearningMessage(const RPG::Learning& learn) const;
+	std::string GetLearningMessage(const RPG::Skill& skill) const;
 
 	BattlerType GetType() const override;
 
@@ -838,5 +887,41 @@ private:
 	int actor_id;
 	std::vector<int> exp_list;
 };
+
+inline const std::string& Game_Actor::GetName() const {
+	return GetData().name;
+}
+
+inline const std::string& Game_Actor::GetTitle() const {
+	return GetData().title;
+}
+
+inline const std::string& Game_Actor::GetSpriteName() const {
+	return GetData().sprite_name;
+}
+
+inline int Game_Actor::GetSpriteIndex() const {
+	return GetData().sprite_id;
+}
+
+inline int Game_Actor::GetSpriteTransparency() const {
+	return GetData().transparency;
+}
+
+inline const std::string& Game_Actor::GetFaceName() const {
+	return GetData().face_name;
+}
+
+inline int Game_Actor::GetFaceIndex() const {
+	return GetData().face_id;
+}
+
+inline int Game_Actor::GetLevel() const {
+	return GetData().level;
+}
+
+inline int Game_Actor::GetExp() const {
+	return GetData().exp;
+}
 
 #endif

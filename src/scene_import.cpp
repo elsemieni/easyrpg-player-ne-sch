@@ -19,8 +19,6 @@
 #include <sstream>
 #include "filefinder.h"
 #include "game_system.h"
-#include "game_temp.h"
-#include "graphics.h"
 #include "input.h"
 #include "lsd_reader.h"
 #include "output.h"
@@ -28,8 +26,6 @@
 #include "scene_file.h"
 #include "scene_import.h"
 #include "scene_map.h"
-#include "scene_title.h"
-
 
 Scene_Import::Scene_Import() :
 	Scene_File(Player::meta->GetExVocabImportSaveHelpText()) {
@@ -142,11 +138,6 @@ void Scene_Import::FinishScan() {
 
 void Scene_Import::Action(int index) {
 	Player::LoadSavegame(files[index].full_path);
-
-	auto title_scene = Scene::Find(Scene::Title);
-	if (title_scene) {
-		static_cast<Scene_Title*>(title_scene.get())->OnGameLoad();
-	}
 
 	Scene::Push(std::make_shared<Scene_Map>(true));
 }

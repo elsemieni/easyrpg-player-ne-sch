@@ -25,6 +25,7 @@
 #include "sprite.h"
 
 class Sprite;
+class Scene;
 
 /**
  * Picture class.
@@ -32,6 +33,10 @@ class Sprite;
 class Game_Picture {
 public:
 	explicit Game_Picture(int ID);
+
+	void SetupFromSave(RPG::SavePicture sp);
+
+	const RPG::SavePicture& GetSaveData() const;
 
 	struct Params {
 		int position_x;
@@ -66,35 +71,60 @@ public:
 		int duration;
 	};
 
+	bool IsOnMap() const;
+	bool IsOnBattle() const;
+
 	void Show(const ShowParams& params);
 	void Move(const MoveParams& params);
-	void Erase(bool force_erase);
+	void Erase();
 
-	void Update();
-	void UpdateSprite();
+	void Update(bool is_battle);
+	void UpdateSprite(bool is_battle);
+
+	static void Update(std::vector<Game_Picture>& pictures, bool is_battle);
+	static void UpdateSprite(std::vector<Game_Picture>& pictures, bool is_battle);
+
+	void OnMapChange();
+	void OnBattleStart(Scene* map_scene, Scene& battle_scene);
+	void OnBattleEnd(Scene* map_scene);
+
+	static void OnMapChange(std::vector<Game_Picture>& pictures);
+	static void OnBattleStart(std::vector<Game_Picture>& pictures, Scene* map_scene, Scene& battle_scene);
+	static void OnBattleEnd(std::vector<Game_Picture>& pictures, Scene* map_scene);
 
 private:
-	int id;
+	RPG::SavePicture data;
 	std::unique_ptr<Sprite> sprite;
-	BitmapRef whole_bitmap;
-	BitmapRef sheet_bitmap;
-	int last_spritesheet_frame = 0;
+	BitmapRef bitmap;
 	FileRequestBinding request_id;
+	int last_spritesheet_frame = 0;
+	bool needs_update = false;
 
 	void SetNonEffectParams(const Params& params, bool set_positions);
 	void SyncCurrentToFinish();
 	void RequestPictureSprite();
 	void OnPictureSpriteReady(FileRequestResult*);
 	int NumSpriteSheetFrames() const;
-	/**
-	 * Compared to other classes picture doesn't hold a direct reference.
-	 * Resizing the picture vector when the ID is larger then the vector can
-	 * result in a memmove on resize, resulting in data pointers pointing into
-	 * garbage.
-	 *
-	 * @return Reference to the SavePicture data
-	 */
-	RPG::SavePicture& GetData() const;
+
+	bool UpdateWouldBeNop() const;
+
 };
+
+inline Game_Picture::Game_Picture(int id) {
+	data.ID = id;
+	needs_update = false;
+}
+
+inline const RPG::SavePicture& Game_Picture::GetSaveData() const {
+	return data;
+}
+
+inline bool Game_Picture::IsOnMap() const {
+	return data.map_layer > 0;
+}
+
+inline bool Game_Picture::IsOnBattle() const {
+	return data.battle_layer > 0;
+}
 
 #endif
