@@ -106,7 +106,7 @@ bool FluidSynthDecoder::Open(FILE* file) {
 				error_message = "Could not start MIDI playback.";
 				return false;
 			}
-			fluid_player_set_loop(player, 1);
+			fluid_player_set_loop(player, -1);
 
 			fclose(file);
 			return true;
