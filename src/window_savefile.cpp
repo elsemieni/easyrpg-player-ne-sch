@@ -25,6 +25,7 @@
 #include "bitmap.h"
 #include "font.h"
 #include "player.h"
+#include "lsd_reader.h"
 
 Window_SaveFile::Window_SaveFile(int ix, int iy, int iwidth, int iheight) :
 	Window_Base(ix, iy, iwidth, iheight) {
@@ -103,12 +104,20 @@ void Window_SaveFile::Refresh() {
 	}
 
 	std::stringstream out;
-	if (override_index > 0) {
+    //netherware fix: add savetime instead hero time
+    char buf[100] = {0};
+    char buf2[100] = {0};
+    std::time_t now = LSD_Reader::ToUnixTimestamp(data.timestamp);
+    std::strftime(buf, sizeof(buf), "%m/%d/%y", std::localtime(&now));
+    std::sprintf(buf2, "%s - %s", buf, data.hero_name.c_str());
+    std::string elapsed_time(buf2);
+    contents->TextDraw(4, 16 + 2, fc, elapsed_time);
+	/*if (override_index > 0) {
 		out << Data::terms.file << std::setw(2) << std::setfill(' ') << override_index;
 		contents->TextDraw(4, 16+2, fc, out.str());
 	} else {
 		contents->TextDraw(4, 16 + 2, fc, data.hero_name);
-	}
+	}*/
 
 	auto lvl_short = Data::terms.lvl_short;
 	if (lvl_short.size() != 2) {

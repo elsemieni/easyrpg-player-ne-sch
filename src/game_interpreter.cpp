@@ -2001,7 +2001,7 @@ bool Game_Interpreter::CommandEndEventProcessing(RPG::EventCommand const& /* com
                 break;
 
             case -101117: //llamar a menu debug
-                Scene::instance->SetRequestedScene(Scene::Debug);
+                //Scene::instance->SetRequestedScene(Scene::Debug);
 				Main_Data::game_variables->Set(1901, 0);
                 return true;
                 break;
