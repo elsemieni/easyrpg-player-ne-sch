@@ -26,6 +26,7 @@
 #include "audio_decoder.h"
 #include "output.h"
 #include "decoder_fluidsynth.h"
+#include "main_data.h"
 
 #include <fluidsynth.h>
 
@@ -40,10 +41,20 @@ FluidSynthDecoder::FluidSynthDecoder() {
 	fluid_settings_setint(settings, "synth.polyphony", 32);
 
 	synth = new_fluid_synth(settings);
-	if (fluid_synth_sfload(synth, "easyrpg.soundfont", 1) == FLUID_FAILED) {
-		error_message = "Could not load soundfont.";
+	//netherware fix, if it's osx load it from SDL defined directory.
+#if defined(__APPLE__)
+    char soundfontpath[512];
+    sprintf(soundfontpath, "%s%s", Main_Data::GetProjectPath().c_str(), "easyrpg.soundfont");
+	if (fluid_synth_sfload(synth, soundfontpath, 1) == FLUID_FAILED) {
+		error_message = "Could not load soundfont (OSX way).";
 		return;
 	}
+#else
+	if (fluid_synth_sfload(synth, "easyrpg.soundfont", 1) == FLUID_FAILED) {
+		error_message = "Could not load soundfont (otherOS way).";
+		return;
+	}
+#endif
 
 	fluid_synth_set_interp_method(synth, -1, 7);
 
