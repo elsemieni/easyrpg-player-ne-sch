@@ -124,7 +124,7 @@ bool FluidSynthDecoder::Seek(size_t offset, Origin origin) {
 	if (offset == 0 && origin == Origin::Begin) {
 		if (init) {
 			fluid_player_stop(player);
-			fluid_player_set_loop(player, 1);
+			fluid_player_set_loop(player, -1);
 			fluid_player_play(player);
 		}
 		return true;
