@@ -424,6 +424,16 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 	target_compile_definitions(${PROJECT_NAME} PUBLIC _DEBUG=1)
 endif()
 
+#netherware hack steamshim
+option(NETHERWARE_STEAMSHIM "Build player with steamshim support" OFF)
+if(NETHERWARE_STEAMSHIM)
+	message("Netherware hack, using Steamshim")
+	target_sources(${PROJECT_NAME} PRIVATE
+			steamshim/steamshim_child.cpp
+			steamshim/steamshim_child.h)
+	target_compile_definitions(${PROJECT_NAME} PUBLIC STEAMSHIM=1)
+endif()
+
 # Endianess check
 if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
 	include(TestBigEndian)
