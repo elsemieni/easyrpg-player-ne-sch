@@ -32,6 +32,15 @@
 #include "scene_save.h"
 #include "scene_map.h"
 
+//netherware fix sdl2ui para haptics
+//netherware fix: defs de controles
+//netherware fix : global joystick handler
+#include <SDL.h>
+#include "game_switches.h"
+extern SDL_Joystick* NethGloJoystickHandler;
+extern SDL_Haptic* NethGloHapticsHandler;
+
+
 namespace {
 	FileRequestBinding music_request_id;
 	FileRequestBinding system_request_id;
@@ -146,6 +155,14 @@ void Game_System::SePlay(const RPG::Sound& se, bool stop_sounds) {
 			Audio().SE_Stop();
 		}
 		return;
+		//netherware fix: detect rumble special sound for playing!
+	} else if (se.name == "_rumble") {
+        if (NethGloHapticsHandler && Main_Data::game_switches->IsValid(1603) && !Main_Data::game_switches->Get(1603)) {
+            float intensity = se.volume / 100.f;
+            int duration = (se.tempo - 40) * 10;
+            SDL_HapticRumblePlay( NethGloHapticsHandler, intensity, duration );
+        }
+        return;
 	}
 
 	std::string end = ".script";

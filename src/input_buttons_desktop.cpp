@@ -103,21 +103,26 @@ void Input::InitButtons() {
 	//buttons[RIGHT].push_back(Keys::JOY_6);
 	buttons[DECISION].push_back(Keys::JOY_0);
 	buttons[CANCEL].push_back(Keys::JOY_1);
-	//buttons[SHIFT].push_back(Keys::JOY_5);
+	buttons[SHIFT].push_back(Keys::JOY_5);
 	//buttons[N0].push_back(Keys::JOY_10);
 
-	buttons[N1].push_back(Keys::JOY_4);
-	buttons[N1].push_back(Keys::JOY_2);
+    buttons[TOGGLE_FULLSCREEN].push_back(Keys::JOY_6);
+    buttons[TOGGLE_FULLSCREEN].push_back(Keys::JOY_8);
+    buttons[TOGGLE_ZOOM].push_back(Keys::JOY_7);
+    buttons[TOGGLE_ZOOM].push_back(Keys::JOY_9);
+
+	//buttons[N1].push_back(Keys::JOY_4);
+	//buttons[N1].push_back(Keys::JOY_2);
 
 	//buttons[N2].push_back(Keys::JOY_12);
 
-	buttons[N3].push_back(Keys::JOY_5);
-	buttons[N3].push_back(Keys::JOY_3);
+	//buttons[N3].push_back(Keys::JOY_5);
+	//buttons[N3].push_back(Keys::JOY_3);
 
 	//buttons[N4].push_back(Keys::JOY_14);
 
-	buttons[N5].push_back(Keys::JOY_6);
-	buttons[N5].push_back(Keys::JOY_7);
+	//buttons[N5].push_back(Keys::JOY_6);
+	//buttons[N5].push_back(Keys::JOY_7);
 
 	//buttons[N6].push_back(Keys::JOY_16);
 	//buttons[N7].push_back(Keys::JOY_17);
@@ -146,9 +151,6 @@ void Input::InitButtons() {
 	buttons[DOWN].push_back(Keys::JOY_AXIS_Y_DOWN);
 	buttons[UP].push_back(Keys::JOY_AXIS_Y_UP);
 
-	//netherware fix: shoot
-	buttons[DECISION].push_back(Keys::JOY_AXIS_Z_DOWN);
-	buttons[DECISION].push_back(Keys::JOY_AXIS_Z_UP);
 #endif
 
 #if defined(USE_TOUCH) && defined(SUPPORT_TOUCH)
