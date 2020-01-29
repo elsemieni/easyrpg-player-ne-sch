@@ -55,6 +55,7 @@
 #include "game_system.h"
 #include "game_temp.h"
 #include "game_variables.h"
+#include "game_targets.h"
 #include "graphics.h"
 #include "inireader.h"
 #include "input.h"
@@ -811,6 +812,7 @@ void Player::ResetGameObjects() {
 	Game_System::Init();
 	Game_Temp::Init();
 
+	Main_Data::game_targets = std::make_unique<Game_Targets>();
 	Main_Data::game_enemyparty = std::make_unique<Game_EnemyParty>();
 	Main_Data::game_party = std::make_unique<Game_Party>();
 	Main_Data::game_player = std::make_unique<Game_Player>();
@@ -886,14 +888,11 @@ static void OnMapSaveFileReady(FileRequestResult*) {
 	FixSaveGames();
 
 	Main_Data::game_player->Refresh();
-
-	auto current_music = Game_System::GetCurrentBGM();
-	Game_System::BgmStop();
-	Game_System::BgmPlay(current_music);
 }
 
 void Player::LoadSavegame(const std::string& save_name) {
 	Output::Debug("Loading Save %s", FileFinder::GetPathInsidePath(Main_Data::GetSavePath(), save_name).c_str());
+	Game_System::BgmStop();
 
 	auto title_scene = Scene::Find(Scene::Title);
 	if (title_scene) {
@@ -947,6 +946,7 @@ void Player::LoadSavegame(const std::string& save_name) {
 
 	Main_Data::game_switches->SetData(std::move(Main_Data::game_data.system.switches));
 	Main_Data::game_variables->SetData(std::move(Main_Data::game_data.system.variables));
+	Main_Data::game_targets->SetSaveData(std::move(Main_Data::game_data.targets));
 
 	Game_System::ReloadSystemGraphic();
 
@@ -971,10 +971,10 @@ static void OnMapFileReady(FileRequestResult*) {
 	Game_Map::Setup(map_id, TeleportTarget::eParallelTeleport);
 	Main_Data::game_player->MoveTo(x_pos, y_pos);
 	Main_Data::game_player->Refresh();
-	Game_Map::PlayBgm();
 }
 
 void Player::SetupNewGame() {
+	Game_System::BgmStop();
 	Game_System::ResetFrameCounter();
 	auto title = Scene::Find(Scene::Title);
 	if (title) {
