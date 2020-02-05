@@ -15,43 +15,25 @@
  * along with EasyRPG Player. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef EP_WINDOW_HELP_H
-#define EP_WINDOW_HELP_H
+#include "game_clock.h"
 
-// Headers
-#include "window_base.h"
-#include "text.h"
+#include <thread>
 
-/**
- * Window_Help class.
- * Shows skill and item explanations.
- */
-class Window_Help : public Window_Base {
-
-public:
-	/**
-	 * Constructor.
-	 */
-	Window_Help(int ix, int iy, int iwidth, int iheight, Drawable::Flags flags = Drawable::Flags::Default);
-
-	/**
-	 * Sets the text that will be shown.
-	 *
-	 * @param text text to show.
-	 * @param align text alignment.
-	 */
-	void SetText(std::string text, Text::Alignment align = Text::AlignLeft);
-
-	/**
-	 * Clears the window
-	 */
-	void Clear();
-
-private:
-	/** Text to draw. */
-	std::string text;
-	/** Alignment of text. */
-	Text::Alignment align;
-};
-
+#if defined(PSP2)
+#include <psp2/kernel/threadmgr.h>
+#elif defined(_3DS)
+#include <3ds/svc.h>
 #endif
+
+constexpr bool Game_Clock::is_steady;
+
+void Game_Clock::SleepFor(std::chrono::nanoseconds ns) {
+#if defined(_3DS)
+	svcSleepThread(ns.count());
+#elif defined(PSP2)
+	auto us = std::chrono::duration_cast<std::chrono::microseconds>(ns);
+	sceKernelDelayThread(us.count());
+#else
+	std::this_thread::sleep_for(ns);
+#endif
+}
