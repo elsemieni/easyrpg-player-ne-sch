@@ -19,6 +19,7 @@
 #include "options.h"
 #include "input.h"
 #include "scene.h"
+#include "game_switches.h"
 
 constexpr int num_seconds = 2;
 constexpr int start_time = num_seconds * DEFAULT_FPS;
@@ -49,7 +50,13 @@ void Game_Quit::Update() {
 
 	// FIXME Need to write the text every frame in case system graphic changes..
 	auto s = (time_left + DEFAULT_FPS - 1) / DEFAULT_FPS;
-	window.SetText("Restarting in " + std::to_string(s) + " sec ...");
+	//netherware fix: spanish string support
+    if (Main_Data::game_switches && Main_Data::game_switches->IsValid(1002) && Main_Data::game_switches->Get(1002)) {
+        window.SetText("Reiniciando en " + std::to_string(s) + " seg ...");
+    } else {
+        window.SetText("Restarting in " + std::to_string(s) + " sec ...");
+    }
+
 	window.Update();
 }
 

@@ -30,6 +30,7 @@
 #include "scene_file.h"
 #include "bitmap.h"
 #include "reader_util.h"
+#include "game_switches.h"
 
 Scene_File::Scene_File(std::string message) :
 	message(message) {
@@ -48,7 +49,19 @@ std::unique_ptr<Sprite> Scene_File::MakeBorderSprite(int y) {
 
 void Scene_File::CreateHelpWindow() {
 	help_window.reset(new Window_Help(0, 0, SCREEN_TARGET_WIDTH, 32));
-	help_window->SetText(message);
+	//netherware fix: spanish string support
+    if (Main_Data::game_switches && Main_Data::game_switches->IsValid(1002) && Main_Data::game_switches->Get(1002)) {
+        if (message == "$u Load Game") {
+            //load
+            help_window->SetText("$u Cargar Partida");
+        } else {
+            //save
+            help_window->SetText("$u Guardar Partida");
+        }
+    } else {
+        help_window->SetText(message);
+    }
+
 	help_window->SetZ(Priority_Window + 1);
 }
 

@@ -26,6 +26,7 @@
 #include "font.h"
 #include "player.h"
 #include "lsd_reader.h"
+#include "game_switches.h"
 
 Window_SaveFile::Window_SaveFile(int ix, int iy, int iwidth, int iheight) :
 	Window_Base(ix, iy, iwidth, iheight) {
@@ -56,7 +57,13 @@ std::string Window_SaveFile::GetSaveFileName() const {
 			out << override_name;
 		}
 	} else {
-		out << Data::terms.file << std::setw(2) << std::setfill(' ') << index + 1;
+	    //netherware fix: spanish strings
+	    if (Main_Data::game_switches && Main_Data::game_switches->IsValid(1002) && Main_Data::game_switches->Get(1002)) {
+            out << "Num. " << std::setw(2) << std::setfill(' ') << index + 1;
+	    } else {
+            out << Data::terms.file << std::setw(2) << std::setfill(' ') << index + 1;
+	    }
+
 	}
 	return out.str();
 }
