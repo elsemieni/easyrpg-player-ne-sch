@@ -48,6 +48,10 @@
 #include "utils.h"
 #include "scope_guard.h"
 
+//Netherware fix para cune
+#include "options.h"
+#include "game_variables.h"
+
 namespace {
 	constexpr int default_pan_x = 9 * SCREEN_TILE_SIZE;
 	constexpr int default_pan_y = 7 * SCREEN_TILE_SIZE;
@@ -307,6 +311,16 @@ void Game_Map::SetupCommon(int _id, bool is_load_savegame) {
 	}
 
 	Output::Debug("Loading Map %s", ss.str().c_str());
+
+	//netherware fix, check map
+	if (location.map_id != MHW_CUNE_LOBBY_MAPID) {
+	    if (Main_Data::game_variables->IsValid(1907) &&
+	    Main_Data::game_variables->Get(1907) != MHW_CUNE_CLEAR_PASSWORD
+	    ) {
+            //activar testplay
+            Player::debug_flag = true;
+	    }
+	}
 
 	if (map.get() == NULL) {
 		Output::ErrorStr(LcfReader::GetError());

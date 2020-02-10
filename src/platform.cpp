@@ -194,3 +194,20 @@ void Platform::Directory::Close() {
 
 	valid_entry = false;
 }
+
+//Netherware fix: checksum of files helper
+unsigned int Platform::MHwChecksum(char* file) {
+    unsigned int seed = 0;
+    FILE *fp;
+    if (NULL == (fp = fopen(file, "rb"))) {
+        return 0;
+    }
+
+    unsigned char checksum = 0;
+    while (!feof(fp) && !ferror(fp)) {
+        checksum ^= fgetc(fp);
+    }
+
+    fclose(fp);
+    return (unsigned int) checksum;
+}

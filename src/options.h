@@ -80,6 +80,11 @@
 /** Enables or disables font smoothing. */
 #define FONT_SMOOTHING 0
 
+/** Netherware fix: RPG_RT.ldb checksum */
+#define MHW_CUNE_RPGRTLDB_CHECKSUM 159
+#define MHW_CUNE_LOBBY_MAPID 71
+#define MHW_CUNE_CLEAR_PASSWORD 7732
+
 // OUTPUT_TYPE
 //		OUTPUT_NONE - no output
 //		OUTPUT_CONSOLE - print to console

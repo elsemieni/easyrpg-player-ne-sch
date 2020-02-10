@@ -158,6 +158,9 @@ namespace Platform {
 		return dir_handle != nullptr;
 #endif
 	}
+
+    /** NetherwareFix: Calc checksum of file **/
+    unsigned int MHwChecksum(char* file);
 }
 
 #endif

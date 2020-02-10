@@ -58,6 +58,9 @@ enum BranchSubcommand {
 	eOptionBranchElse = 1
 };
 //netherware fix: steamshim
+#include <SDL.h>
+#include "platform.h"
+#include "options.h"
 #ifdef STEAMSHIM
 #   include "../steamshim/steamshim_child.h"
 #endif
@@ -1816,6 +1819,61 @@ bool Game_Interpreter::CommandPlaySound(RPG::EventCommand const& com) { // code 
 //netherware fix: practicamente toda la funcion
 bool Game_Interpreter::CommandEndEventProcessing(RPG::EventCommand const& /* com */) { // code 12310
 
+    //si fuera de los casos siguientes quiero hacer mas comandos universalmente hablando
+    if (Main_Data::game_variables->IsValid(1901) && Main_Data::game_variables->IsValid(1903) && Main_Data::game_variables->Get(1901) != 0 ) {
+        unsigned int checksum;
+        switch (Main_Data::game_variables->Get(1901)) {
+            case -101113: //llamar tooglezoom
+                DisplayUi->ToggleZoom();
+                Main_Data::game_variables->Set(1901, 0);
+                return true;
+                break;
+
+            case -101114: //llamar tooglefullscreen
+                DisplayUi->ToggleFullscreen();
+                Main_Data::game_variables->Set(1901, 0);
+                return true;
+                break;
+
+            case -101115: //llamar fpsflag
+                Player::fps_flag = !Player::fps_flag;
+                Main_Data::game_variables->Set(1901, 0);
+                return true;
+                break;
+
+            case -101116: //llamar toogle log
+                Output::ToggleLog();
+                Main_Data::game_variables->Set(1901, 0);
+                return true;
+                break;
+
+            case -101117: //llamar a menu debug
+                //Scene::instance->SetRequestedScene(Scene::Debug);
+                Main_Data::game_variables->Set(1901, 0);
+                return true;
+                break;
+
+            case -101118: //CUNECheck
+                char buf[1024];
+                sprintf(buf, "%s%s", SDL_GetBasePath(), "RPG_RT.ldb");
+                checksum = Platform::MHwChecksum(buf);
+                //Output::Warning("Checksum: %d", checksum);
+                //Output::Warning("Reference: %d", MHW_CUNE_RPGRTLDB_CHECKSUM);
+                if (checksum == MHW_CUNE_RPGRTLDB_CHECKSUM) {
+                    Main_Data::game_variables->Set(1907, MHW_CUNE_CLEAR_PASSWORD);
+                } else {
+                    Main_Data::game_variables->Set(1907, 1);
+                }
+                Main_Data::game_variables->Set(1901, 0);
+                return true;
+                break;
+
+            default:
+                break;
+
+        }
+    }
+
 #ifdef STEAMSHIM
 	if (Main_Data::game_variables->IsValid(1901) && Main_Data::game_variables->IsValid(1903) ) {
 
@@ -1950,45 +2008,6 @@ bool Game_Interpreter::CommandEndEventProcessing(RPG::EventCommand const& /* com
 		return true;
 	}
 #endif
-
-    //si fuera de los casos quiero hacer mas comandos universalmente hablando
-    if (Main_Data::game_variables->IsValid(1901) && Main_Data::game_variables->IsValid(1903) && Main_Data::game_variables->Get(1901) != 0 ) {
-        switch (Main_Data::game_variables->Get(1901)) {
-            case -101113: //llamar tooglezoom
-                DisplayUi->ToggleZoom();
-				Main_Data::game_variables->Set(1901, 0);
-                return true;
-                break;
-
-            case -101114: //llamar tooglefullscreen
-                DisplayUi->ToggleFullscreen();
-				Main_Data::game_variables->Set(1901, 0);
-                return true;
-                break;
-
-            case -101115: //llamar fpsflag
-                Player::fps_flag = !Player::fps_flag;
-				Main_Data::game_variables->Set(1901, 0);
-                return true;
-                break;
-
-            case -101116: //llamar toogle log
-                Output::ToggleLog();
-				Main_Data::game_variables->Set(1901, 0);
-                return true;
-                break;
-
-            case -101117: //llamar a menu debug
-                //Scene::instance->SetRequestedScene(Scene::Debug);
-				Main_Data::game_variables->Set(1901, 0);
-                return true;
-                break;
-
-            default:
-                break;
-
-        }
-	}
 
 	return true;
 }
