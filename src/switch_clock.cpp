@@ -14,30 +14,9 @@
  * You should have received a copy of the GNU General Public License
  * along with EasyRPG Player. If not, see <http://www.gnu.org/licenses/>.
  */
+#include "switch_clock.h"
 
-// Headers
-#include "drawable_mgr.h"
-
-DrawableList* DrawableMgr::_local = nullptr;
-
-void DrawableMgr::SetLocalList(DrawableList* list) {
-	if (list) {
-		// If a Drawable that is was attached to list changed it's Z value when list
-		// was not set as the current local list, the wrong list would have been set as dirty.
-		// To prevent this
-		// Always ensure local list gets sorted. When the list was used externally
-		// we have no guarantee that changes to it's contents keep it sorted.
-		list->SetDirty();
-	}
-
-	_local = list;
-}
-
-void DrawableMgr::Register(Drawable* drawable) {
-	GetLocalList().Append(drawable);
-}
-
-void DrawableMgr::Remove(Drawable* drawable) {
-	GetLocalList().Take(drawable);
-}
-
+#ifdef __SWITCH__
+constexpr bool NxClock::is_steady;
+constexpr int64_t NxClock::ticks_per_sec;
+#endif

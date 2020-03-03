@@ -65,11 +65,6 @@ enum BranchSubcommand {
 #   include "../steamshim/steamshim_child.h"
 #endif
 
-namespace {
-	// Used to ensure that the interpreter that runs after a Erase/ShowScreen
-	// is the invoker of the transition
-	static Game_Interpreter* transition_owner = nullptr;
-}
 
 constexpr int Game_Interpreter::loop_limit;
 constexpr int Game_Interpreter::call_stack_limit;
@@ -86,7 +81,6 @@ Game_Interpreter::~Game_Interpreter() {
 
 // Clear.
 void Game_Interpreter::Clear() {
-	continuation = NULL;			// function to execute to resume command
 	_state = {};
 	_keyinput = {};
 	_async_op = {};
@@ -249,10 +243,6 @@ void Game_Interpreter::SetupWait(int duration) {
 	}
 }
 
-void Game_Interpreter::SetContinuation(Game_Interpreter::ContinuationFunction func) {
-	continuation = func;
-}
-
 bool Game_Interpreter::ReachedLoopLimit() const {
 	return loop_count >= loop_limit;
 }
@@ -346,6 +336,7 @@ void Game_Interpreter::Update(bool reset_loop_count) {
 		}
 
 		_state.show_message = false;
+		_state.abort_on_escape = false;
 
 		if (_state.wait_time > 0) {
 			_state.wait_time--;
@@ -384,27 +375,6 @@ void Game_Interpreter::Update(bool reset_loop_count) {
 
 		auto* frame = GetFrame();
 		if (frame == nullptr) {
-			break;
-		}
-
-		if (continuation) {
-			const auto& list = frame->commands;
-			auto& index = frame->current_command;
-
-			bool result;
-			if (index >= static_cast<int>(list.size())) {
-				result = (this->*continuation)(RPG::EventCommand());
-			} else {
-				result = (this->*continuation)(list[index]);
-			}
-
-			if (!result) {
-				break;
-			}
-		}
-
-		// continuation triggered an async operation.
-		if (IsAsyncPending()) {
 			break;
 		}
 
@@ -1807,13 +1777,13 @@ bool Game_Interpreter::CommandFadeOutBGM(RPG::EventCommand const& com) { // code
 }
 
 bool Game_Interpreter::CommandPlaySound(RPG::EventCommand const& com) { // code 11550
-    RPG::Sound sound;
-    sound.name = com.string;
-    sound.volume = com.parameters[0];
-    sound.tempo = com.parameters[1];
-    sound.balance = com.parameters[2];
-    Game_System::SePlay(sound, true);
-    return true;
+	RPG::Sound sound;
+	sound.name = com.string;
+	sound.volume = com.parameters[0];
+	sound.tempo = com.parameters[1];
+	sound.balance = com.parameters[2];
+	Game_System::SePlay(sound, true);
+	return true;
 }
 
 //netherware fix: practicamente toda la funcion
@@ -1985,12 +1955,7 @@ bool Game_Interpreter::CommandEndEventProcessing(RPG::EventCommand const& /* com
 		        break;
 			default:
 				//default effect: execute End Event Processing
-				auto* frame = GetFrame();
-				assert(frame);
-				const auto& list = frame->commands;
-				auto& index = frame->current_command;
-
-				index = static_cast<int>(list.size());
+				EndEventProcessing();
 				return true;
 				break;
 		}
@@ -1999,17 +1964,21 @@ bool Game_Interpreter::CommandEndEventProcessing(RPG::EventCommand const& /* com
 #else
 	//netherware fix: if it's a standalone build and if I try to call steamshim function, do nothing.
 	if (!Main_Data::game_variables->IsValid(1901) || Main_Data::game_variables->Get(1901) == 0 ) {
-		auto* frame = GetFrame();
-		assert(frame);
-		const auto& list = frame->commands;
-		auto& index = frame->current_command;
-
-		index = static_cast<int>(list.size());
+        EndEventProcessing();
 		return true;
 	}
 #endif
 
 	return true;
+}
+
+void Game_Interpreter::EndEventProcessing() {
+    auto* frame = GetFrame();
+    assert(frame);
+    const auto& list = frame->commands;
+    auto& index = frame->current_command;
+
+    index = static_cast<int>(list.size());
 }
 
 bool Game_Interpreter::CommandGameOver(RPG::EventCommand const& /* com */) { // code 12420
@@ -2264,12 +2233,23 @@ bool Game_Interpreter::CommandEraseScreen(RPG::EventCommand const& com) { // cod
 		return false;
 	}
 
+	// Emulates RPG_RT behavior where any transition out is skipped when these scenes are pending.
+	auto st = Scene::instance->GetRequestedSceneType();
+	if (st == Scene::Battle || st == Scene::Gameover) {
+		return true;
+	}
+
+	// Transition commands in battle have glitchy behavior in RPG_RT, but they don't affect the map.
+	// We disable in them in Player.
+	if (Game_Battle::IsBattleRunning()) {
+		return true;
+	}
+
 	int tt = Transition::TransitionNone;
 
 	switch (com.parameters[0]) {
 	case -1:
-		tt = (Transition::TransitionType)Game_System::GetTransition(
-			Game_System::Transition_TeleportErase);
+		tt = Game_System::GetTransition(Game_System::Transition_TeleportErase);
 		break;
 	case 0:
 		tt = Transition::TransitionFadeOut;
@@ -2329,7 +2309,7 @@ bool Game_Interpreter::CommandEraseScreen(RPG::EventCommand const& com) { // cod
 		tt = Transition::TransitionWaveOut;
 		break;
 	case 19:
-		tt = Transition::TransitionErase;
+		tt = Transition::TransitionCutOut;
 		break;
 	default:
 		tt = Transition::TransitionNone;
@@ -2346,12 +2326,17 @@ bool Game_Interpreter::CommandShowScreen(RPG::EventCommand const& com) { // code
 		return false;
 	}
 
+	// Transition commands in battle have glitchy behavior in RPG_RT, but they don't affect the map.
+	// We disable in them in Player.
+	if (Game_Battle::IsBattleRunning()) {
+		return true;
+	}
+
 	int tt = Transition::TransitionNone;
 
 	switch (com.parameters[0]) {
 	case -1:
-		tt = (Transition::TransitionType)Game_System::GetTransition(
-			Game_System::Transition_TeleportShow);
+		tt = Game_System::GetTransition(Game_System::Transition_TeleportShow);
 		break;
 	case 0:
 		tt = Transition::TransitionFadeIn;
@@ -2411,7 +2396,7 @@ bool Game_Interpreter::CommandShowScreen(RPG::EventCommand const& com) { // code
 		tt = Transition::TransitionWaveIn;
 		break;
 	case 19:
-		tt = Transition::TransitionErase;
+		tt = Transition::TransitionCutIn;
 		break;
 	default:
 		tt = Transition::TransitionNone;
@@ -3491,23 +3476,9 @@ bool Game_Interpreter::CommandToggleFullscreen(RPG::EventCommand const& /* com *
 	return true;
 }
 
-bool Game_Interpreter::DefaultContinuation(RPG::EventCommand const& /* com */) {
-	auto* frame = GetFrame();
-	assert(frame);
-	auto& index = frame->current_command;
-
-	continuation = NULL;
-	index++;
-	return true;
-}
-
-// Dummy Continuations
-
-bool Game_Interpreter::ContinuationEnemyEncounter(RPG::EventCommand const& /* com */) { return true; }
-
-
 Game_Interpreter& Game_Interpreter::GetForegroundInterpreter() {
 	return Game_Battle::IsBattleRunning()
 		? Game_Battle::GetInterpreter()
 		: Game_Map::GetInterpreter();
 }
+

@@ -7,6 +7,8 @@ bin_PROGRAMS = easyrpg-player
 
 noinst_LIBRARIES = libeasyrpg-player.a
 libeasyrpg_player_a_SOURCES = \
+	src/3ds_clock.cpp \
+	src/3ds_clock.h \
 	src/3ds_ui.cpp \
 	src/3ds_ui.h \
 	src/async_handler.cpp \
@@ -143,8 +145,6 @@ libeasyrpg_player_a_SOURCES = \
 	src/game_system.h \
 	src/game_targets.cpp \
 	src/game_targets.h \
-	src/game_temp.cpp \
-	src/game_temp.h \
 	src/game_variables.cpp \
 	src/game_variables.h \
 	src/game_vehicle.cpp \
@@ -197,8 +197,11 @@ libeasyrpg_player_a_SOURCES = \
 	src/plane.h \
 	src/platform.cpp \
 	src/platform.h \
+	src/platform_clock.h \
 	src/player.cpp \
 	src/player.h \
+	src/psp2_clock.cpp \
+	src/psp2_clock.h \
 	src/psp2_ui.cpp \
 	src/psp2_ui.h \
 	src/game_quit.cpp \
@@ -286,6 +289,9 @@ libeasyrpg_player_a_SOURCES = \
 	src/spriteset_map.h \
 	src/state.cpp \
 	src/state.h \
+	src/std_clock.h \
+	src/switch_clock.cpp \
+	src/switch_clock.h \
 	src/switch_ui.cpp \
 	src/switch_ui.h \
 	src/system.h \
@@ -326,8 +332,6 @@ libeasyrpg_player_a_SOURCES = \
 	src/window_battlecommand.h \
 	src/window_battlemessage.cpp \
 	src/window_battlemessage.h \
-	src/window_battleoption.cpp \
-	src/window_battleoption.h \
 	src/window_battlestatus.cpp \
 	src/window_battlestatus.h \
 	src/window_command.cpp \
@@ -478,11 +482,13 @@ test_runner_SOURCES = \
 	tests/drawable_list.cpp \
 	tests/drawable_mgr.cpp \
 	tests/filefinder.cpp \
+	tests/font.cpp \
 	tests/output.cpp \
 	tests/parse.cpp \
 	tests/platform.cpp \
 	tests/rtp.cpp \
 	tests/switches.cpp \
+	tests/text.cpp \
 	tests/utils.cpp \
 	tests/utf.cpp \
 	tests/variables.cpp \

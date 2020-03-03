@@ -37,8 +37,6 @@ using namespace std::chrono_literals;
 
 namespace Graphics {
 	void UpdateTitle();
-	void LocalDraw(Bitmap& dst, int priority = Priority::Priority_Maximum);
-	void GlobalDraw(Bitmap& dst, int priority = Priority::Priority_Maximum);
 
 	int framerate;
 
@@ -56,7 +54,7 @@ unsigned SecondToFrame(float const second) {
 
 void Graphics::Init() {
 	Scene::Push(std::make_shared<Scene>());
-	current_scene = Scene::instance;
+	UpdateSceneCallback();
 
 	message_overlay.reset(new MessageOverlay());
 	fps_overlay.reset(new FpsOverlay());
@@ -65,8 +63,6 @@ void Graphics::Init() {
 }
 
 void Graphics::Quit() {
-	DrawableMgr::GetGlobalList().Clear();
-
 	fps_overlay.reset();
 	message_overlay.reset();
 
@@ -101,7 +97,6 @@ void Graphics::Update() {
 	fps_overlay->Update();
 	fps_overlay->AddUpdate();
 	message_overlay->Update();
-	Transition::instance().Update();
 }
 
 void Graphics::UpdateTitle() {
@@ -126,41 +121,30 @@ void Graphics::UpdateTitle() {
 void Graphics::Draw(Bitmap& dst) {
 	fps_overlay->AddFrame();
 
-	BitmapRef disp = DisplayUi->GetDisplaySurface();
+	auto& transition = Transition::instance();
 
-	if (Transition::instance().IsErased()) {
-		DisplayUi->CleanDisplay();
-		GlobalDraw(dst);
-		DisplayUi->UpdateDisplay();
+	int min_z = std::numeric_limits<int>::min();
+	int max_z = std::numeric_limits<int>::max();
+	if (transition.IsActive() || transition.IsErased()) {
+		min_z = transition.GetZ();
+	}
+
+	if (transition.IsErased()) {
+		dst.Clear();
+		LocalDraw(dst, min_z, max_z);
 		return;
 	}
-	LocalDraw(dst);
-	GlobalDraw(dst);
-	DisplayUi->UpdateDisplay();
+	LocalDraw(dst, min_z, max_z);
 }
 
-void Graphics::LocalDraw(Bitmap& dst, int priority) {
+void Graphics::LocalDraw(Bitmap& dst, int min_z, int max_z) {
 	auto& drawable_list = DrawableMgr::GetLocalList();
 
-	if (!drawable_list.empty()) {
+	if (!drawable_list.empty() && min_z == std::numeric_limits<int>::min()) {
 		current_scene->DrawBackground(dst);
 	}
 
-	drawable_list.Draw(dst, priority);
-}
-
-void Graphics::GlobalDraw(Bitmap& dst, int priority) {
-	auto& drawable_list = DrawableMgr::GetGlobalList();
-
-	drawable_list.Draw(dst, priority);
-}
-
-
-BitmapRef Graphics::SnapToBitmap(int priority) {
-	BitmapRef disp = DisplayUi->GetDisplaySurface();
-	LocalDraw(*disp, priority);
-	GlobalDraw(*disp, priority);
-	return DisplayUi->CaptureScreen();
+	drawable_list.Draw(dst, min_z, max_z);
 }
 
 void Graphics::FrameReset(Game_Clock::time_point now) {
@@ -168,13 +152,20 @@ void Graphics::FrameReset(Game_Clock::time_point now) {
 	fps_overlay->ResetCounter();
 }
 
-void Graphics::UpdateSceneCallback() {
+std::shared_ptr<Scene> Graphics::UpdateSceneCallback() {
+	auto prev_scene = current_scene;
 	current_scene = Scene::instance;
+
 	if (current_scene) {
+		if (prev_scene) {
+			current_scene->TransferDrawablesFrom(*prev_scene);
+		}
 		DrawableMgr::SetLocalList(&current_scene->GetDrawableList());
 	} else {
 		DrawableMgr::SetLocalList(nullptr);
 	}
+
+	return prev_scene;
 }
 
 MessageOverlay& Graphics::GetMessageOverlay() {

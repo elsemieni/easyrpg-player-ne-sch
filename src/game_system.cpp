@@ -361,7 +361,7 @@ RPG::System::Font Game_System::GetFontId() {
 		: Data::system.font_id);
 }
 
-int Game_System::GetTransition(int which) {
+Transition::Type Game_System::GetTransition(int which) {
 	int transition = 0;
 
 	auto get = [&](int local, int db) {
@@ -390,12 +390,14 @@ int Game_System::GetTransition(int which) {
 		default: assert(false && "Bad transition");
 	}
 
-	if (transition < 0 || transition > 20) {
+	constexpr int num_types = 21;
+
+	if (transition < 0 || transition >= num_types) {
 		Output::Warning("Invalid transition value %d", transition);
-		transition = Utils::Clamp(transition, 0, 20);
+		transition = Utils::Clamp(transition, 0, num_types - 1);
 	}
 
-	static const int fades[2][21] = {
+	constexpr Transition::Type fades[2][num_types] = {
 		{
 			Transition::TransitionFadeOut,
 			Transition::TransitionRandomBlocks,
@@ -416,7 +418,7 @@ int Game_System::GetTransition(int which) {
 			Transition::TransitionZoomIn,
 			Transition::TransitionMosaicOut,
 			Transition::TransitionWaveOut,
-			Transition::TransitionErase,
+			Transition::TransitionCutOut,
 			Transition::TransitionNone
 		},
 		{
@@ -439,7 +441,7 @@ int Game_System::GetTransition(int which) {
 			Transition::TransitionZoomOut,
 			Transition::TransitionMosaicIn,
 			Transition::TransitionWaveIn,
-			Transition::TransitionErase,
+			Transition::TransitionCutIn,
 			Transition::TransitionNone,
 		}
 	};

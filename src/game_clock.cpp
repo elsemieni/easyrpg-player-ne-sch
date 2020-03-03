@@ -16,24 +16,26 @@
  */
 
 #include "game_clock.h"
+#include "output.h"
 
 #include <thread>
-
-#if defined(PSP2)
-#include <psp2/kernel/threadmgr.h>
-#elif defined(_3DS)
-#include <3ds.h>
-#endif
+#include <cinttypes>
 
 constexpr bool Game_Clock::is_steady;
 
-void Game_Clock::SleepFor(std::chrono::nanoseconds ns) {
-#if defined(_3DS)
-	svcSleepThread(ns.count());
-#elif defined(PSP2)
-	auto us = std::chrono::duration_cast<std::chrono::microseconds>(ns);
-	sceKernelDelayThread(us.count());
-#else
-	std::this_thread::sleep_for(ns);
-#endif
+void Game_Clock::logClockInfo() {
+	const char* period_name = "custom";
+	if (std::is_same<period,std::nano>::value) {
+		period_name = "ns";
+	} else if (std::is_same<period,std::micro>::value) {
+		period_name = "us";
+	} else if (std::is_same<period,std::milli>::value) {
+		period_name = "ms";
+	}
+	Output::Debug("Clock: %s steady=%d period=%s (%" PRIdMAX " / %" PRIdMAX ")",
+			Name(),
+			is_steady,
+			period_name,
+			period::num,
+			period::den);
 }

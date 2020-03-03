@@ -28,7 +28,7 @@
 /**
  * Scene virtual class.
  */
-class Scene : public std::enable_shared_from_this<Scene> {
+class Scene {
 public:
 	/** Scene types. */
 	enum SceneType {
@@ -215,8 +215,11 @@ public:
 	 */
 	std::shared_ptr<Scene> TakeRequestedScene();
 
+	/** @return the type of the requested scene, or Null if there is none */
+	SceneType GetRequestedSceneType() const;
+
 	/** @return true if a scene is being requested */
-	bool HasRequestedScene();
+	bool HasRequestedScene() const;
 
 	/**
 	 * Sets the requested scene to change to
@@ -256,9 +259,9 @@ public:
 	 * Transfer drawables from the previous scene. This is called
 	 * when we do a scene change.
 	 *
-	 * @param prev_scene can be nullptr if this is the first scene.
+	 * @param prev_scene the scene to take from.
 	 */
-	void TransferDrawablesFrom(Scene* prev_scene);
+	void TransferDrawablesFrom(Scene& prev_scene);
 
 protected:
 	using AsyncContinuation = std::function<void(void)>;
@@ -305,7 +308,11 @@ inline std::shared_ptr<Scene> Scene::TakeRequestedScene() {
 	return ptr;
 }
 
-inline bool Scene::HasRequestedScene() {
+inline Scene::SceneType Scene::GetRequestedSceneType() const {
+	return request_scene ? request_scene->type : Null;
+}
+
+inline bool Scene::HasRequestedScene() const {
 	return request_scene != nullptr;
 }
 

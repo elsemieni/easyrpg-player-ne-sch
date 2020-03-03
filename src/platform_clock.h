@@ -15,42 +15,25 @@
  * along with EasyRPG Player. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef EP_GAME_TEMP_H
-#define EP_GAME_TEMP_H
+#ifndef EP_PLATFORM_CLOCK_H
+#define EP_PLATFORM_CLOCK_H
 
-// Headers
-#include <string>
-#include "game_battler.h"
-#include "transition.h"
+#include <chrono>
+#include <type_traits>
+#include <thread>
+#include "3ds_clock.h"
+#include "switch_clock.h"
+#include "psp2_clock.h"
+#include "std_clock.h"
 
-/**
- * Game Temp static class.
- */
-class Game_Temp {
-public:
-	/**
-	 * Initializes Game Temp.
-	 */
-	static void Init();
-
-	static int battle_troop_id;
-	static std::string battle_background;
-	static int battle_formation;
-	static int battle_escape_mode;
-	static int battle_defeat_mode;
-	static bool battle_first_strike;
-	static int battle_result;
-	static bool battle_random_encounter;
-
-	enum BattleResult {
-		BattleVictory,
-		BattleEscape,
-		BattleDefeat,
-		BattleAbort
-	};
-
-private:
-	Game_Temp();
-};
+#if defined(_3DS)
+using Platform_Clock = CtrClock;
+#elif defined(__SWITCH__)
+using Platform_Clock = NxClock;
+#elif defined(PSP2)
+using Platform_Clock = Psp2Clock;
+#else
+using Platform_Clock = StdClock;
+#endif
 
 #endif

@@ -79,7 +79,6 @@ Scene::Scene() {
 
 void Scene::MainFunction() {
 	static bool init = false;
-	static std::shared_ptr<Scene> prev_scene;
 
 	if (IsAsyncPending()) {
 		Player::Update(false);
@@ -95,8 +94,9 @@ void Scene::MainFunction() {
 	// it could have changed the scene.
 	if (!IsAsyncPending() && Scene::instance.get() == this) {
 		if (!init) {
+			auto prev_scene = Graphics::UpdateSceneCallback();
 			auto prev_scene_type = prev_scene ? prev_scene->type : Null;
-			TransferDrawablesFrom(prev_scene.get());
+
 			// Destroy the previous scene here, before any initialization logic / transition in occurs.
 			prev_scene.reset();
 
@@ -141,10 +141,6 @@ void Scene::MainFunction() {
 		Suspend(next_scene);
 		TransitionOut(next_scene);
 
-		// TransitionOut stored a screenshot of the last scene
-		Graphics::UpdateSceneCallback();
-
-		prev_scene = this->shared_from_this();
 		init = false;
 	}
 }
@@ -162,11 +158,11 @@ void Scene::Suspend(SceneType /* next_scene */) {
 }
 
 void Scene::TransitionIn(SceneType) {
-	Transition::instance().Init(Transition::TransitionFadeIn, this, 6);
+	Transition::instance().InitShow(Transition::TransitionFadeIn, this, 6);
 }
 
 void Scene::TransitionOut(SceneType) {
-	Transition::instance().Init(Transition::TransitionFadeOut, this, 6, true);
+	Transition::instance().InitErase(Transition::TransitionFadeOut, this, 6);
 }
 
 void Scene::SetAsyncFromMainLoop() {
@@ -323,13 +319,8 @@ bool Scene::ReturnToTitleScene() {
 	return true;
 }
 
-
-void Scene::TransferDrawablesFrom(Scene* prev_scene) {
-	if (prev_scene == nullptr) {
-		return;
-	}
-
-	if (uses_shared_drawables) {
-		drawable_list.TakeFrom(prev_scene->GetDrawableList(), [](auto* draw) { return draw->IsShared(); });
-	}
+void Scene::TransferDrawablesFrom(Scene& prev_scene) {
+	drawable_list.TakeFrom(prev_scene.GetDrawableList(),
+			[this](auto* draw) { return draw->IsGlobal() || (uses_shared_drawables && draw->IsShared()); });
 }
+

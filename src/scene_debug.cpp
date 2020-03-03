@@ -37,11 +37,11 @@
 #include "window_varlist.h"
 #include "window_numberinput.h"
 #include "bitmap.h"
-#include "game_temp.h"
 #include "game_party.h"
 #include "game_player.h"
 #include "data.h"
 #include "output.h"
+#include "transition.h"
 
 struct Scene_Debug::IndexSet {
 	int range_index = 0;
@@ -676,18 +676,14 @@ void Scene_Debug::DoBattle() {
 			prev.troop.range_page = range_page;
 			prev.troop.range_page_index = var_window->GetIndex();
 
-			Game_Character *player = Main_Data::game_player.get();
-			Game_Battle::SetTerrainId(Game_Map::GetTerrainTag(player->GetX(), player->GetY()));
-			Game_Map::SetupBattle();
-			Game_Temp::battle_troop_id = GetIndex();
-			Game_Temp::battle_random_encounter = false;
-			Game_Temp::battle_formation = 0;
-			Game_Temp::battle_escape_mode = 2;
-			Game_Temp::battle_defeat_mode = 1;
-			Game_Temp::battle_first_strike = 0;
-			Game_Temp::battle_result = Game_Temp::BattleVictory;
-			Game_Battle::SetBattleMode(0);
-			Scene::Push(Scene_Battle::Create());
+			BattleArgs args;
+			args.troop_id = GetIndex();
+			args.first_strike = false;
+			args.allow_escape = true;
+
+			Game_Map::SetupBattle(args);
+
+			Scene::Push(Scene_Battle::Create(std::move(args)));
 		}
 	}
 }
@@ -739,5 +735,12 @@ void Scene_Debug::DoCallEvent() {
 		Scene::PopUntil(Scene::Map);
 		Output::Debug("Debug Scene Forced execution of common event %d on the map foreground interpreter.", ce.GetIndex());
 	}
+}
 
+void Scene_Debug::TransitionIn(SceneType /* prev_scene */) {
+	Transition::instance().InitShow(Transition::TransitionCutIn, this);
+}
+
+void Scene_Debug::TransitionOut(SceneType /* next_scene */) {
+	Transition::instance().InitErase(Transition::TransitionCutOut, this);
 }

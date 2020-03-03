@@ -56,7 +56,6 @@
 #include "game_screen.h"
 #include "game_pictures.h"
 #include "game_system.h"
-#include "game_temp.h"
 #include "game_variables.h"
 #include "game_targets.h"
 #include "graphics.h"
@@ -78,6 +77,7 @@
 #include "game_quit.h"
 #include "scene_title.h"
 #include "instrumentation.h"
+#include "transition.h"
 #include "scope_guard.h"
 #include "baseui.h"
 #include "game_clock.h"
@@ -168,6 +168,7 @@ void Player::Init(int argc, char *argv[]) {
 	WindowsUtils::InitMiniDumpWriter();
 #endif
 
+	Game_Clock::logClockInfo();
 	Utils::SeedRandomNumberGenerator(time(NULL));
 
 	ParseCommandLine(argc, argv);
@@ -206,12 +207,6 @@ void Player::Init(int argc, char *argv[]) {
 	Input::Init(replay_input_path, record_input_path);
 }
 
-namespace {
-// FIXME: Refactor the main loop and get rid of these global objects.
-Instrumentation::FrameScope iframe_scope(false);
-bool did_sleep_this_frame = false;
-}
-
 void Player::Run() {
 	Instrumentation::Init("EasyRPG-Player");
 	Scene::Push(std::make_shared<Scene_Logo>());
@@ -221,6 +216,8 @@ void Player::Run() {
 
 	// Reset frames before starting
 	FrameReset(Game_Clock::now());
+
+	start_time = Game_Clock::now();
 
 	// Main loop
 	// libretro invokes the MainLoop through a retro_run-callback
@@ -235,24 +232,40 @@ void Player::Run() {
 #  endif
 		MainLoop();
 	}
-	iframe_scope.End();
 #endif
 }
 
 void Player::MainLoop() {
-	did_sleep_this_frame = false;
-	iframe_scope.Begin();
+	Instrumentation::FrameScope iframe;
 
-	Scene::instance->MainFunction();
+	next_frame = start_time + Game_Clock::GetSimulationTimeStep();
+
+	auto speed_modifier = GetSpeedModifier();
+	for (int i = 0; i < speed_modifier; ++i) {
+		Scene::old_instances.clear();
+		Scene::instance->MainFunction();
+	}
+
+	Player::Draw();
 
 	Scene::old_instances.clear();
 
+	start_time = next_frame;
+
 	if (!Transition::instance().IsActive() && Scene::instance->type == Scene::Null) {
 		Exit();
+		return;
 	}
-	if (!did_sleep_this_frame) {
-		iframe_scope.End();
+
+	// Don't use sleep when the port uses an external timing source
+#if !defined(USE_LIBRETRO)
+	auto cur_time = Game_Clock::now();
+	// Still time after graphic update? Yield until it's time for next one.
+	if (cur_time < next_frame) {
+		iframe.End();
+		Game_Clock::SleepFor(next_frame - cur_time);
 	}
+#endif
 }
 
 void Player::Pause() {
@@ -266,22 +279,6 @@ void Player::Resume() {
 }
 
 void Player::Update(bool update_scene) {
-	// available ms per frame, game logic expects 60 fps
-	next_frame = start_time + Game_Clock::GetSimulationTimeStep();
-
-	auto cur_time = Game_Clock::now();
-
-#if !defined(USE_LIBRETRO)
-	// libretro: The frontend handles this, cores should not do rate
-	// limiting
-	if (cur_time < start_time) {
-		// Ensure this function is only called 60 times per second.
-		// Main purpose is for emscripten where the calls per second
-		// equal the display refresh rate.
-		return;
-	}
-#endif
-
 	// Input Logic:
 	if (Input::IsTriggered(Input::TOGGLE_FPS)) {
 		fps_flag = !fps_flag;
@@ -300,7 +297,6 @@ void Player::Update(bool update_scene) {
 	}
 
 	if (Main_Data::game_quit) {
-		Main_Data::game_quit->Update();
 		reset_flag |= Main_Data::game_quit->ShouldQuit();
 	}
 
@@ -311,7 +307,7 @@ void Player::Update(bool update_scene) {
 
 	if (exit_flag) {
 		Scene::PopUntil(Scene::Null);
-	} else if (reset_flag) {
+	} else if (reset_flag && !Scene::IsAsyncPending()) {
 		reset_flag = false;
 		if (Scene::ReturnToTitleScene()) {
 			// Fade out music and stop sound effects before returning
@@ -325,50 +321,38 @@ void Player::Update(bool update_scene) {
 	Audio().Update();
 	Input::Update();
 
-	int speed_modifier = GetSpeedModifier();
-
-	for (int i = 0; i < speed_modifier; ++i) {
-		auto was_transition_pending = Transition::instance().IsActive();
-		Graphics::Update();
-		// If we aren't waiting on a transition, but we are waiting for scene delay.
-		if (!was_transition_pending) {
-			Scene::instance->UpdateDelayFrames();
-		}
-		if (update_scene) {
-			Scene::instance->Update();
-			// Async file loading or transition. Don't increment the frame
-			// counter as we now have to "suspend" and "resume"
-			if (Scene::IsAsyncPending()) {
-				old_instance->SetAsyncFromMainLoop();
-				break;
-			}
-			IncFrame();
-
-			// Not save to Update again, setup code must run:
-			if (&*old_instance != &*Scene::instance) {
-				break;
-			}
-		}
+	if (Main_Data::game_quit) {
+		Main_Data::game_quit->Update();
 	}
 
-	start_time = next_frame;
+	auto& transition = Transition::instance();
+	auto was_transition_pending = transition.IsActive();
 
-	BitmapRef disp = DisplayUi->GetDisplaySurface();
+	transition.Update();
 
-	cur_time = Game_Clock::now();
-	if (cur_time < next_frame) {
-		Graphics::Draw(*disp);
-		cur_time = Game_Clock::now();
-		// Don't use sleep when the port uses an external timing source
-#if !defined(USE_LIBRETRO)
-		// Still time after graphic update? Yield until it's time for next one.
-		if (cur_time < next_frame) {
-			iframe_scope.End();
-			did_sleep_this_frame = true;
-			Game_Clock::SleepFor(next_frame - cur_time);
-			iframe_scope.Begin();
+	// If we aren't waiting on a transition, but we are waiting for scene delay.
+	if (!was_transition_pending) {
+		Scene::instance->UpdateDelayFrames();
+	}
+	if (update_scene) {
+		Scene::instance->Update();
+		// Async file loading or transition. Don't increment the frame
+		// counter as we now have to "suspend" and "resume"
+		if (Scene::IsAsyncPending()) {
+			old_instance->SetAsyncFromMainLoop();
+			return;
 		}
-#endif
+		IncFrame();
+	}
+}
+
+void Player::Draw() {
+	Graphics::Update();
+
+	auto cur_time = Game_Clock::now();
+	if (cur_time < next_frame) {
+		Graphics::Draw(*DisplayUi->GetDisplaySurface());
+		DisplayUi->UpdateDisplay();
 	}
 }
 
@@ -389,11 +373,12 @@ int Player::GetFrames() {
 }
 
 void Player::Exit() {
+	Graphics::UpdateSceneCallback();
 #ifdef EMSCRIPTEN
 	BitmapRef surface = DisplayUi->GetDisplaySurface();
 	std::string message = "It's now safe to turn off\n      your browser.";
 
-	Text::Draw(*surface, 84, DisplayUi->GetHeight() / 2 - 30, Color(221, 123, 64, 255), Font::Default(), message);
+	Text::Draw(*surface, 84, DisplayUi->GetHeight() / 2 - 30, *Font::Default(), Color(221, 123, 64, 255), message);
 	DisplayUi->UpdateDisplay();
 #endif
 
@@ -409,6 +394,17 @@ void Player::Exit() {
 #elif defined(_3DS)
 	romfsExit();
 #endif
+}
+
+static bool parseInt(const std::string& s, long& value) {
+	auto* p = s.c_str();
+	auto* e = p + s.size();
+	long v = strtol(p, const_cast<char**>(&e), 10);
+	if (p == e) {
+		return false;
+	}
+	value = v;
+	return true;
 }
 
 void Player::ParseCommandLine(int argc, char *argv[]) {
@@ -505,6 +501,22 @@ void Player::ParseCommandLine(int argc, char *argv[]) {
 			}
 			Game_Battle::battle_test.enabled = true;
 			Game_Battle::battle_test.troop_id = atoi((*it).c_str());
+
+			++it;
+			// If the next 3 parameters are numbers, assume they're 2k3 formation, condition, and terrain
+			long fct[3] = { 0, 0, 1 };
+			for (int i = 0; i < 3; ++i) {
+				if (it == args.end() || !parseInt(*it, fct[i])) {
+					break;
+				}
+				++it;
+			}
+
+			Game_Battle::battle_test.formation = static_cast<RPG::System::BattleFormation>(fct[0]);
+			Game_Battle::battle_test.condition = static_cast<RPG::System::BattleCondition>(fct[1]);
+			Game_Battle::battle_test.terrain_id = fct[2];
+
+			--it;
 		}
 		else if (*it == "--project-path") {
 			++it;
@@ -807,7 +819,6 @@ void Player::ResetGameObjects() {
 	Game_Map::Init();
 	Game_Message::Init();
 	Game_System::Init();
-	Game_Temp::Init();
 
 	Main_Data::game_targets = std::make_unique<Game_Targets>();
 	Main_Data::game_enemyparty = std::make_unique<Game_EnemyParty>();
@@ -926,7 +937,6 @@ void Player::LoadSavegame(const std::string& save_name) {
 	}
 
 	Scene::PopUntil(Scene::Title);
-	Game_Temp::Init();
 	Game_Map::Dispose();
 
 	Main_Data::game_data = *save.get();
