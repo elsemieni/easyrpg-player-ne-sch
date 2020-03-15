@@ -1827,20 +1827,28 @@ bool Game_Interpreter::CommandEndEventProcessing(RPG::EventCommand const& /* com
                 char buf[1024];
                 sprintf(buf, "%s%s", SDL_GetBasePath(), "RPG_RT.ldb");
                 checksum = Platform::MHwChecksum(buf);
-                //Output::Warning("Checksum: %d", checksum);
-                //Output::Warning("Reference: %d", MHW_CUNE_RPGRTLDB_CHECKSUM);
+
+#ifdef NETHERWARE_SKIP_CUNE_CHECKSUM
+                Output::Warning("SUPER CRYSTAL HUNTER v1.0.2 DEV BUILD");
+                Output::Warning("2020 NETHERWARE ENTERTAINMENT");
+                Output::Warning("WARNING: THIS BUILD IS FOR DEVELOPMENT PURPOSES ONLY!");
+                Output::Warning("============================================================");
+                Main_Data::game_variables->Set(1907, MHW_CUNE_CLEAR_PASSWORD);
+                Output::Warning("Checksum: %d Reference %d ", checksum, MHW_CUNE_RPGRTLDB_CHECKSUM);
+#else
                 if (checksum == MHW_CUNE_RPGRTLDB_CHECKSUM) {
                     Main_Data::game_variables->Set(1907, MHW_CUNE_CLEAR_PASSWORD);
                 } else {
+                    Output::Warning("CUNE Rylus meditation: 0x000000 %d", checksum);
                     Main_Data::game_variables->Set(1907, 1);
                 }
+#endif
                 Main_Data::game_variables->Set(1901, 0);
                 return true;
                 break;
 
             default:
                 break;
-
         }
     }
 

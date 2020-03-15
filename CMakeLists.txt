@@ -440,6 +440,13 @@ if(NETHERWARE_STEAMSHIM)
 	target_compile_definitions(${PROJECT_NAME} PUBLIC STEAMSHIM=1)
 endif()
 
+#netherware hack debug cune
+option(NETHERWARE_SKIP_CUNE_CHECKSUM "Skip CUNE checksum while game boot" OFF)
+if(NETHERWARE_SKIP_CUNE_CHECKSUM)
+	message("Netherware hack, skipping CUNE checksum")
+	target_compile_definitions(${PROJECT_NAME} PUBLIC NETHERWARE_SKIP_CUNE_CHECKSUM=1)
+endif()
+
 # Endianess check
 if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
 	include(TestBigEndian)
