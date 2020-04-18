@@ -81,7 +81,7 @@
 #define FONT_SMOOTHING 0
 
 /** Netherware fix: RPG_RT.ldb checksum */
-#define MHW_CUNE_RPGRTLDB_CHECKSUM 36
+#define MHW_CUNE_RPGRTLDB_CHECKSUM 168
 #define MHW_CUNE_LOBBY_MAPID 71
 #define MHW_CUNE_CLEAR_PASSWORD 7732
 

@@ -1815,7 +1815,7 @@ bool Game_Interpreter::CommandEndEventProcessing(RPG::EventCommand const& /* com
                 checksum = Platform::MHwChecksum(buf);
 
 #ifdef NETHERWARE_SKIP_CUNE_CHECKSUM
-                Output::Warning("SUPER CRYSTAL HUNTER v1.0.2 DEV BUILD");
+                Output::Warning("SUPER CRYSTAL HUNTER v1.0.3 DEV BUILD");
                 Output::Warning("2020 NETHERWARE ENTERTAINMENT");
                 Output::Warning("WARNING: THIS BUILD IS FOR DEVELOPMENT PURPOSES ONLY!");
                 Output::Warning("============================================================");
