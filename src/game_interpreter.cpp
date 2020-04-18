@@ -267,10 +267,9 @@ int Game_Interpreter::GetThisEventId() const {
 }
 
 uint8_t& Game_Interpreter::ReserveSubcommandIndex(int indent) {
-	auto* frame = GetFrame();
-	assert(frame);
+	auto& frame = GetFrame();
 
-	auto& path = frame->subcommand_path;
+	auto& path = frame.subcommand_path;
 	if (indent >= (int)path.size()) {
 		// This fixes an RPG_RT bug where RPG_RT would resize
 		// the array with uninitialized values.
@@ -284,7 +283,7 @@ void Game_Interpreter::SetSubcommandIndex(int indent, int idx) {
 }
 
 int Game_Interpreter::GetSubcommandIndex(int indent) const {
-	auto* frame = GetFrame();
+	auto* frame = GetFramePtr();
 	if (frame == nullptr) {
 		return subcommand_sentinel;
 	}
@@ -360,7 +359,7 @@ void Game_Interpreter::Update(bool reset_loop_count) {
 		if (_keyinput.wait) {
 			const int key = _keyinput.CheckInput();
 			Main_Data::game_variables->Set(_keyinput.variable, key);
-			Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
+			Game_Map::SetNeedRefresh(true);
 			if (key == 0) {
 				++_keyinput.wait_frames;
 				break;
@@ -368,12 +367,12 @@ void Game_Interpreter::Update(bool reset_loop_count) {
 			if (_keyinput.timed) {
 				// 10 per second
 				Main_Data::game_variables->Set(_keyinput.time_variable,
-						(_keyinput.wait_frames * 10) / Game_Clock::GetSimulationFps());
+						(_keyinput.wait_frames * 10) / Game_Clock::GetTargetGameFps());
 			}
 			_keyinput.wait = false;
 		}
 
-		auto* frame = GetFrame();
+		auto* frame = GetFramePtr();
 		if (frame == nullptr) {
 			break;
 		}
@@ -384,7 +383,7 @@ void Game_Interpreter::Update(bool reset_loop_count) {
 
 		// Previous operations could have modified the stack.
 		// So we need to fetch the frame again.
-		frame = GetFrame();
+		frame = GetFramePtr();
 		if (frame == nullptr) {
 			break;
 		}
@@ -427,7 +426,7 @@ void Game_Interpreter::Update(bool reset_loop_count) {
 	} // for
 
 	if (loop_count > loop_limit - 1) {
-		auto* frame = GetFrame();
+		auto* frame = GetFramePtr();
 		int event_id = frame ? frame->event_id : 0;
 		// Executed Events Count exceeded (10000)
 		Output::Debug("Event %d exceeded execution limit", event_id);
@@ -459,10 +458,9 @@ bool Game_Interpreter::CheckGameOver() {
 }
 
 void Game_Interpreter::SkipToNextConditional(std::initializer_list<int> codes, int indent) {
-	auto* frame = GetFrame();
-	assert(frame);
-	const auto& list = frame->commands;
-	auto& index = frame->current_command;
+	auto& frame = GetFrame();
+	const auto& list = frame.commands;
+	auto& index = frame.current_command;
 
 	if (index >= static_cast<int>(list.size())) {
 		return;
@@ -531,12 +529,8 @@ RPG::MoveCommand Game_Interpreter::DecodeMove(std::vector<int32_t>::const_iterat
 
 // Execute Command.
 bool Game_Interpreter::ExecuteCommand() {
-	auto* frame = GetFrame();
-	assert(frame);
-	const auto& list = frame->commands;
-	auto& index = frame->current_command;
-
-	RPG::EventCommand const& com = list[index];
+	auto& frame = GetFrame();
+	const auto& com = frame.commands[frame.current_command];
 
 	switch (com.code) {
 		case Cmd::ShowMessage:
@@ -714,8 +708,7 @@ bool Game_Interpreter::ExecuteCommand() {
 }
 
 bool Game_Interpreter::OnFinishStackFrame() {
-	auto* frame = GetFrame();
-	assert(frame);
+	auto& frame = GetFrame();
 
 	const bool is_base_frame = _state.stack.size() == 1;
 
@@ -723,7 +716,7 @@ bool Game_Interpreter::OnFinishStackFrame() {
 		Game_Message::ClearFace();
 	}
 
-	int event_id = frame->event_id;
+	int event_id = frame.event_id;
 
 	if (is_base_frame && event_id > 0) {
 		Game_Event* evnt = Game_Map::GetEvent(event_id);
@@ -738,7 +731,7 @@ bool Game_Interpreter::OnFinishStackFrame() {
 		// Parallel events will never clear the base stack frame. Instead we just
 		// reset the index back to 0 and wait for a frame.
 		// This not only optimizes away copying event code, it's also RPG_RT compatible.
-		frame->current_command = 0;
+		frame.current_command = 0;
 	} else {
 		// If a called frame, or base frame of foreground interpreter, pop the stack.
 		_state.stack.pop_back();
@@ -748,10 +741,9 @@ bool Game_Interpreter::OnFinishStackFrame() {
 }
 
 std::vector<std::string> Game_Interpreter::GetChoices(int max_num_choices) {
-	auto* frame = GetFrame();
-	assert(frame);
-	const auto& list = frame->commands;
-	auto& index = frame->current_command;
+	const auto& frame = GetFrame();
+	const auto& list = frame.commands;
+	auto& index = frame.current_command;
 
 	// Let's find the choices
 	int current_indent = list[index + 1].indent;
@@ -786,10 +778,9 @@ bool Game_Interpreter::CommandOptionGeneric(RPG::EventCommand const& com, int op
 }
 
 bool Game_Interpreter::CommandShowMessage(RPG::EventCommand const& com) { // code 10110
-	auto* frame = GetFrame();
-	assert(frame);
-	const auto& list = frame->commands;
-	auto& index = frame->current_command;
+	auto& frame = GetFrame();
+	const auto& list = frame.commands;
+	auto& index = frame.current_command;
 
 	if (!Game_Message::CanShowMessage(main_flag)) {
 		return false;
@@ -878,9 +869,7 @@ void Game_Interpreter::SetupChoices(const std::vector<std::string>& choices, int
 }
 
 bool Game_Interpreter::CommandShowChoices(RPG::EventCommand const& com) { // code 10140
-	auto* frame = GetFrame();
-	assert(frame);
-	auto& index = frame->current_command;
+	auto& index = GetFrame().current_command;
 
 	if (!Game_Message::CanShowMessage(main_flag)) {
 		return false;
@@ -953,7 +942,7 @@ bool Game_Interpreter::CommandControlSwitches(RPG::EventCommand const& com) { //
 			}
 		}
 
-		Game_Map::SetNeedRefresh(Game_Map::Refresh_All);
+		Game_Map::SetNeedRefresh(true);
 	}
 
 	return true;
@@ -1242,7 +1231,7 @@ bool Game_Interpreter::CommandControlVariables(RPG::EventCommand const& com) { /
 			}
 		}
 
-		Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
+		Game_Map::SetNeedRefresh(true);
 	}
 
 	return true;
@@ -1389,7 +1378,7 @@ bool Game_Interpreter::CommandChangeItems(RPG::EventCommand const& com) { // Cod
 			value
 		);
 	}
-	Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
+	Game_Map::SetNeedRefresh(true);
 	// Continue
 	return true;
 }
@@ -1421,7 +1410,7 @@ bool Game_Interpreter::CommandChangePartyMember(RPG::EventCommand const& com) { 
 	}
 
 	CheckGameOver();
-	Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
+	Game_Map::SetNeedRefresh(true);
 
 	// Continue
 	return true;
@@ -1712,7 +1701,6 @@ bool Game_Interpreter::CommandSimulatedAttack(RPG::EventCommand const& com) { //
 	int var = com.parameters[5];
 
 	for (const auto& actor : GetActors(com.parameters[0], com.parameters[1])) {
-		actor->ResetBattle();
 		int result = atk;
 		result -= (actor->GetDef() * def) / 400;
 		result -= (actor->GetSpi() * spi) / 800;
@@ -1727,7 +1715,7 @@ bool Game_Interpreter::CommandSimulatedAttack(RPG::EventCommand const& com) { //
 
 		if (com.parameters[6] != 0) {
 			Main_Data::game_variables->Set(com.parameters[7], result);
-			Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
+			Game_Map::SetNeedRefresh(true);
 		}
 	}
 
@@ -1736,9 +1724,7 @@ bool Game_Interpreter::CommandSimulatedAttack(RPG::EventCommand const& com) { //
 }
 
 bool Game_Interpreter::CommandWait(RPG::EventCommand const& com) { // code 11410
-	auto* frame = GetFrame();
-	assert(frame);
-	auto& index = frame->current_command;
+	auto& index = GetFrame().current_command;
 
 	// Wait a given time
 	if (com.parameters.size() <= 1 ||
@@ -1981,18 +1967,15 @@ bool Game_Interpreter::CommandEndEventProcessing(RPG::EventCommand const& /* com
 }
 
 void Game_Interpreter::EndEventProcessing() {
-    auto* frame = GetFrame();
-    assert(frame);
-    const auto& list = frame->commands;
-    auto& index = frame->current_command;
+	auto& frame = GetFrame();
+	const auto& list = frame.commands;
+	auto& index = frame.current_command;
 
-    index = static_cast<int>(list.size());
+	index = static_cast<int>(list.size());
 }
 
 bool Game_Interpreter::CommandGameOver(RPG::EventCommand const& /* com */) { // code 12420
-	auto* frame = GetFrame();
-	assert(frame);
-	auto& index = frame->current_command;
+	auto& index = GetFrame().current_command;
 
 	if (Game_Message::IsMessageActive()) {
 		return false;
@@ -2117,7 +2100,7 @@ bool Game_Interpreter::CommandMemorizeLocation(RPG::EventCommand const& com) { /
 	Main_Data::game_variables->Set(var_map_id, Game_Map::GetMapId());
 	Main_Data::game_variables->Set(var_x, player->GetX());
 	Main_Data::game_variables->Set(var_y, player->GetY());
-	Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
+	Game_Map::SetNeedRefresh(true);
 	return true;
 }
 
@@ -2222,7 +2205,7 @@ bool Game_Interpreter::CommandStoreTerrainID(RPG::EventCommand const& com) { // 
 	int y = ValueOrVariable(com.parameters[0], com.parameters[2]);
 	int var_id = com.parameters[3];
 	Main_Data::game_variables->Set(var_id, Game_Map::GetTerrainTag(x, y));
-	Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
+	Game_Map::SetNeedRefresh(true);
 	return true;
 }
 
@@ -2232,7 +2215,7 @@ bool Game_Interpreter::CommandStoreEventID(RPG::EventCommand const& com) { // co
 	int var_id = com.parameters[3];
 	auto* ev = Game_Map::GetEventAt(x, y, false);
 	Main_Data::game_variables->Set(var_id, ev ? ev->GetId() : 0);
-	Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
+	Game_Map::SetNeedRefresh(true);
 	return true;
 }
 
@@ -2881,7 +2864,7 @@ bool Game_Interpreter::CommandKeyInputProc(RPG::EventCommand const& com) { // co
 	if (wait) {
 		// While waiting the variable is reset to 0 each frame.
 		Main_Data::game_variables->Set(var_id, 0);
-		Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
+		Game_Map::SetNeedRefresh(true);
 	}
 
 	if (wait && Game_Message::IsMessageActive()) {
@@ -2897,32 +2880,55 @@ bool Game_Interpreter::CommandKeyInputProc(RPG::EventCommand const& com) { // co
 
 	const size_t param_size = com.parameters.size();
 
-	if (param_size < 6) {
-		// For Rpg2k <1.50
-		if (com.parameters[2] != 0) {
-			_keyinput.keys[Keys::eDown] = true;
-			_keyinput.keys[Keys::eLeft] = true;
-			_keyinput.keys[Keys::eRight] = true;
-			_keyinput.keys[Keys::eUp] = true;
+	// All engines support older versions of the command depending on the
+	// length of the parameter list
+	if (Player::IsRPG2k()) {
+		if (param_size < 6 || Player::IsRPG2kLegacy()) {
+			// For Rpg2k <1.50
+			if (com.parameters[2] != 0) {
+				_keyinput.keys[Keys::eDown] = true;
+				_keyinput.keys[Keys::eLeft] = true;
+				_keyinput.keys[Keys::eRight] = true;
+				_keyinput.keys[Keys::eUp] = true;
+			}
+		} else {
+			// For Rpg2k >=1.50
+			_keyinput.keys[Keys::eShift] = com.parameters[5] != 0;
+			_keyinput.keys[Keys::eDown] = param_size > 6 ? com.parameters[6] != 0 : false;
+			_keyinput.keys[Keys::eLeft] = param_size > 7 ? com.parameters[7] != 0 : false;
+			_keyinput.keys[Keys::eRight] = param_size > 8 ? com.parameters[8] != 0 : false;
+			_keyinput.keys[Keys::eUp] = param_size > 9 ? com.parameters[9] != 0 : false;
 		}
-	} else if (param_size < 11) {
-		// For Rpg2k >=1.50
-		_keyinput.keys[Keys::eShift] = com.parameters[5] != 0;
-		_keyinput.keys[Keys::eDown] = param_size > 6 ? com.parameters[6] != 0 : false;
-		_keyinput.keys[Keys::eLeft] = param_size > 7 ? com.parameters[7] != 0 : false;
-		_keyinput.keys[Keys::eRight] = param_size > 8 ? com.parameters[8] != 0 : false;
-		_keyinput.keys[Keys::eUp] = param_size > 9 ? com.parameters[9] != 0 : false;
 	} else {
-		// For Rpg2k3
-		_keyinput.keys[Keys::eNumbers] = com.parameters[5] != 0;
-		_keyinput.keys[Keys::eOperators] = com.parameters[6] != 0;
-		_keyinput.time_variable = com.parameters[7];
-		_keyinput.timed = com.parameters[8] != 0;
-		_keyinput.keys[Keys::eShift] = com.parameters[9] != 0;
-		_keyinput.keys[Keys::eDown] = com.parameters[10] != 0;
-		_keyinput.keys[Keys::eLeft] = param_size > 11 ? com.parameters[11] != 0 : false;
-		_keyinput.keys[Keys::eRight] = param_size > 12 ? com.parameters[12] != 0 : false;
-		_keyinput.keys[Keys::eUp] = param_size > 13 ? com.parameters[13] != 0 : false;
+		if (param_size != 10 || Player::IsRPG2k3Legacy()) {
+			if (param_size < 10 && com.parameters[2] != 0) {
+				// For RPG2k3 <1.05 (later versions got individual key checks)
+				_keyinput.keys[Keys::eDown] = true;
+				_keyinput.keys[Keys::eLeft] = true;
+				_keyinput.keys[Keys::eRight] = true;
+				_keyinput.keys[Keys::eUp] = true;
+			}
+			_keyinput.keys[Keys::eNumbers] = param_size > 5 ? com.parameters[5] != 0 : false;
+			_keyinput.keys[Keys::eOperators] = param_size > 6 ? com.parameters[6] != 0 : false;
+			_keyinput.time_variable = param_size > 7 ? com.parameters[7] : false;
+			_keyinput.timed = param_size > 8 ? com.parameters[8] != 0 : false;
+			if (param_size > 10 && Player::IsMajorUpdatedVersion()) {
+				// For Rpg2k3 >=1.05
+				_keyinput.keys[Keys::eShift] = com.parameters[9] != 0;
+				_keyinput.keys[Keys::eDown] = com.parameters[10] != 0;
+				_keyinput.keys[Keys::eLeft] = param_size > 11 ? com.parameters[11] != 0 : false;
+				_keyinput.keys[Keys::eRight] = param_size > 12 ? com.parameters[12] != 0 : false;
+				_keyinput.keys[Keys::eUp] = param_size > 13 ? com.parameters[13] != 0 : false;
+			}
+		} else {
+			// Since RPG2k3 1.05
+			// Support for RPG2k >=1.50 games imported into RPG2k3
+			_keyinput.keys[Keys::eShift] = com.parameters[5] != 0;
+			_keyinput.keys[Keys::eDown] = com.parameters[6] != 0;
+			_keyinput.keys[Keys::eLeft] = com.parameters[7] != 0;
+			_keyinput.keys[Keys::eRight] = com.parameters[8] != 0;
+			_keyinput.keys[Keys::eUp] = com.parameters[9] != 0;
+		}
 	}
 
 	if (_keyinput.wait) {
@@ -2935,7 +2941,7 @@ bool Game_Interpreter::CommandKeyInputProc(RPG::EventCommand const& com) { // co
 
 	int key = _keyinput.CheckInput();
 	Main_Data::game_variables->Set(_keyinput.variable, key);
-	Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
+	Game_Map::SetNeedRefresh(true);
 
 	return true;
 }
@@ -3045,8 +3051,7 @@ bool Game_Interpreter::CommandChangeMainMenuAccess(RPG::EventCommand const& com)
 }
 
 bool Game_Interpreter::CommandConditionalBranch(RPG::EventCommand const& com) { // Code 12010
-	auto* frame = GetFrame();
-	assert(frame);
+	const auto& frame = GetFrame();
 
 	bool result = false;
 	int value1, value2;
@@ -3202,7 +3207,7 @@ bool Game_Interpreter::CommandConditionalBranch(RPG::EventCommand const& com) { 
 	}
 	case 8:
 		// Key decision initiated this event
-		result = frame->triggered_by_decision_key;
+		result = frame.triggered_by_decision_key;
 		break;
 	case 9:
 		// BGM looped at least once
@@ -3266,10 +3271,9 @@ bool Game_Interpreter::CommandEndBranch(RPG::EventCommand const& /* com */) { //
 }
 
 bool Game_Interpreter::CommandJumpToLabel(RPG::EventCommand const& com) { // code 12120
-	auto* frame = GetFrame();
-	assert(frame);
-	const auto& list = frame->commands;
-	auto& index = frame->current_command;
+	auto& frame = GetFrame();
+	const auto& list = frame.commands;
+	auto& index = frame.current_command;
 
 	int label_id = com.parameters[0];
 
@@ -3286,10 +3290,9 @@ bool Game_Interpreter::CommandJumpToLabel(RPG::EventCommand const& com) { // cod
 }
 
 bool Game_Interpreter::CommandBreakLoop(RPG::EventCommand const& /* com */) { // code 12220
-	auto* frame = GetFrame();
-	assert(frame);
-	const auto& list = frame->commands;
-	auto& index = frame->current_command;
+	auto& frame = GetFrame();
+	const auto& list = frame.commands;
+	auto& index = frame.current_command;
 
 	// BreakLoop will jump to the end of the event if there is no loop.
 
@@ -3307,10 +3310,9 @@ bool Game_Interpreter::CommandBreakLoop(RPG::EventCommand const& /* com */) { //
 }
 
 bool Game_Interpreter::CommandEndLoop(RPG::EventCommand const& com) { // code 22210
-	auto* frame = GetFrame();
-	assert(frame);
-	const auto& list = frame->commands;
-	auto& index = frame->current_command;
+	auto& frame = GetFrame();
+	const auto& list = frame.commands;
+	auto& index = frame.current_command;
 
 	int indent = com.indent;
 
@@ -3326,7 +3328,7 @@ bool Game_Interpreter::CommandEndLoop(RPG::EventCommand const& com) { // code 22
 	}
 
 	// Jump past the Cmd::Loop to the first command.
-	if (index < (int)frame->commands.size()) {
+	if (index < (int)frame.commands.size()) {
 		++index;
 	}
 
@@ -3334,9 +3336,8 @@ bool Game_Interpreter::CommandEndLoop(RPG::EventCommand const& com) { // code 22
 }
 
 bool Game_Interpreter::CommandEraseEvent(RPG::EventCommand const& /* com */) { // code 12320
-	auto* frame = GetFrame();
-	assert(frame);
-	auto& index = frame->current_command;
+	auto& frame = GetFrame();
+	auto& index = frame.current_command;
 
 	auto event_id = GetThisEventId();
 

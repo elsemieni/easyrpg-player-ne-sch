@@ -410,6 +410,7 @@ libeasyrpg_player_a_SOURCES += \
 endif
 
 libeasyrpg_player_a_CXXFLAGS = \
+	-fno-math-errno \
 	-I$(srcdir)/src \
 	$(LCF_CFLAGS) \
 	$(PIXMAN_CFLAGS) \

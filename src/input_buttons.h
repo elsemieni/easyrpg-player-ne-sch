@@ -76,6 +76,24 @@ namespace Input {
 
 	/** Direction buttons list of equivalent buttons. */
 	extern std::vector<std::vector<int> > dir_buttons;
+
+	/**
+	 * Return true if the given button is a system button.
+	 * System buttons are refreshed on every physical frame
+	 * and do not affect the game logic.
+	 */
+	constexpr bool IsSystemButton(InputButton b) {
+		switch (b) {
+			case TOGGLE_FPS:
+			case TAKE_SCREENSHOT:
+			case SHOW_LOG:
+			case TOGGLE_ZOOM:
+			case FAST_FORWARD:
+				return true;
+			default:
+				return false;
+		}
+	}
 }
 
 #endif

@@ -52,8 +52,15 @@ Window_Message::Window_Message(int ix, int iy, int iwidth, int iheight) :
 {
 	SetContents(Bitmap::Create(width - 16, height - 16));
 
-	if (Data::battlecommands.battle_type != RPG::BattleCommands::BattleType_traditional &&
-		Data::battlecommands.transparency == RPG::BattleCommands::Transparency_transparent) {
+	// 2k3 transparent message boxes
+	bool msg_transparent = Player::IsRPG2k3()
+		// if the flag is set ..
+		&& (Data::battlecommands.transparency == RPG::BattleCommands::Transparency_transparent)
+		// if we're not in battle, or if we are in battle but not using mode A
+		&& (!Game_Battle::IsBattleRunning() || Data::battlecommands.battle_type != RPG::BattleCommands::BattleType_traditional)
+		// RPG_RT < 1.11 bug, map messages were not transparent if the battle type was mode A.
+		&& (Player::IsRPG2k3E() || Data::battlecommands.battle_type != RPG::BattleCommands::BattleType_traditional);
+	if (msg_transparent) {
 		SetBackOpacity(128);
 	}
 	gold_window->SetBackOpacity(GetBackOpacity());
@@ -94,7 +101,7 @@ void Window_Message::StartMessageProcessing(PendingMessage pm) {
 	text.clear();
 	auto append = [&](const std::string& line) {
 		text.append(line);
-		if (text.empty() || (text.back() != '\n' && text.back() != '\f')) {
+		if (line.empty() || (text.back() != '\n' && text.back() != '\f')) {
 			text.append(1, '\n');
 		}
 	};
@@ -406,7 +413,7 @@ void Window_Message::UpdateMessage() {
 			break;
 		}
 
-		if (std::iscntrl(static_cast<unsigned char>(ch))) {
+		if (Utils::IsControlCharacter(ch)) {
 			// control characters not handled
 			continue;
 		}
@@ -593,7 +600,7 @@ void Window_Message::InputNumber() {
 	if (Input::IsTriggered(Input::DECISION)) {
 		Game_System::SePlay(Game_System::GetSystemSE(Game_System::SFX_Decision));
 		Main_Data::game_variables->Set(pending_message.GetNumberInputVariable(), number_input_window->GetNumber());
-		Game_Map::SetNeedRefresh(Game_Map::Refresh_Map);
+		Game_Map::SetNeedRefresh(true);
 		TerminateMessage();
 		number_input_window->SetNumber(0);
 	}

@@ -72,7 +72,19 @@ private:
 	bool bgs_stop = true;
 	bool played_once = false;
 
-	typedef std::map<int, std::pair<std::shared_ptr<Mix_Chunk>, AudioSeRef>> sounds_type;
+	struct sound_data {
+		sound_data() = default;
+		sound_data(const sound_data&) = delete;
+		sound_data(sound_data&&) = default;
+		sound_data& operator=(const sound_data&) = delete;
+		sound_data& operator=(sound_data&&) = default;
+
+		std::shared_ptr<Mix_Chunk> chunk;
+		AudioSeRef se_ref;
+		std::vector<uint8_t> buffer;
+	};
+
+	typedef std::map<int, sound_data> sounds_type;
 	sounds_type sounds;
 
 	std::unique_ptr<AudioDecoder> audio_decoder;

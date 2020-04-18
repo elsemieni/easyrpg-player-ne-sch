@@ -121,12 +121,11 @@ namespace Player {
 #ifdef _3DS
 	bool is_3dsx;
 #endif
+	Game_Clock::duration frame_limit = Game_Clock::GetTargetGameTimeStep();
+	bool vsync = true;
 }
 
 namespace {
-	Game_Clock::time_point start_time;
-	Game_Clock::time_point next_frame;
-
 	// Overwritten by --encoding
 	std::string forced_encoding;
 
@@ -214,10 +213,7 @@ void Player::Run() {
 
 	reset_flag = false;
 
-	// Reset frames before starting
-	FrameReset(Game_Clock::now());
-
-	start_time = Game_Clock::now();
+	Game_Clock::ResetFrame(Game_Clock::now());
 
 	// Main loop
 	// libretro invokes the MainLoop through a retro_run-callback
@@ -238,34 +234,47 @@ void Player::Run() {
 void Player::MainLoop() {
 	Instrumentation::FrameScope iframe;
 
-	next_frame = start_time + Game_Clock::GetSimulationTimeStep();
+	const auto frame_time = Game_Clock::now();
+	Game_Clock::OnNextFrame(frame_time);
 
-	auto speed_modifier = GetSpeedModifier();
-	for (int i = 0; i < speed_modifier; ++i) {
+	Player::UpdateInput();
+
+	int num_updates = 0;
+	while (Game_Clock::NextGameTimeStep()) {
+		if (num_updates > 0) {
+			Player::UpdateInput();
+		}
+
 		Scene::old_instances.clear();
 		Scene::instance->MainFunction();
+
+		++num_updates;
+	}
+	if (num_updates == 0) {
+		// If no logical frames ran, we need to update the system keys only.
+		Input::UpdateSystem();
 	}
 
 	Player::Draw();
 
 	Scene::old_instances.clear();
 
-	start_time = next_frame;
-
 	if (!Transition::instance().IsActive() && Scene::instance->type == Scene::Null) {
 		Exit();
 		return;
 	}
 
-	// Don't use sleep when the port uses an external timing source
-#if !defined(USE_LIBRETRO)
-	auto cur_time = Game_Clock::now();
-	// Still time after graphic update? Yield until it's time for next one.
-	if (cur_time < next_frame) {
-		iframe.End();
-		Game_Clock::SleepFor(next_frame - cur_time);
+	if (DisplayUi->IsFrameRateSynchronized() || frame_limit == Game_Clock::duration()) {
+		return;
 	}
-#endif
+
+	// Still time after graphic update? Yield until it's time for next one.
+	auto now = Game_Clock::now();
+	auto next = frame_time + frame_limit;
+	if (Game_Clock::now() < next) {
+		iframe.End();
+		Game_Clock::SleepFor(next - now);
+	}
 }
 
 void Player::Pause() {
@@ -275,26 +284,28 @@ void Player::Pause() {
 void Player::Resume() {
 	Input::ResetKeys();
 	Audio().BGM_Resume();
-	FrameReset(Game_Clock::now());
+	Game_Clock::ResetFrame(Game_Clock::now());
 }
 
-void Player::Update(bool update_scene) {
+void Player::UpdateInput() {
 	// Input Logic:
-	if (Input::IsTriggered(Input::TOGGLE_FPS)) {
+	if (Input::IsSystemTriggered(Input::TOGGLE_FPS)) {
 		fps_flag = !fps_flag;
 	}
-	if (Input::IsTriggered(Input::TAKE_SCREENSHOT)) {
+	if (Input::IsSystemTriggered(Input::TAKE_SCREENSHOT)) {
 		Output::TakeScreenshot();
 	}
-	if (Input::IsTriggered(Input::SHOW_LOG)) {
+	if (Input::IsSystemTriggered(Input::SHOW_LOG)) {
 		Output::ToggleLog();
 	}
-	if (Input::IsTriggered(Input::TOGGLE_ZOOM)) {
+	if (Input::IsSystemTriggered(Input::TOGGLE_ZOOM)) {
 		DisplayUi->ToggleZoom();
 	}
-	if (Input::IsTriggered(Input::TOGGLE_FULLSCREEN)) {
-		DisplayUi->ToggleFullscreen();
+	float speed = 1.0;
+	if (Input::IsSystemPressed(Input::FAST_FORWARD)) {
+		speed = Input::IsPressed(Input::PLUS) ? 10 : speed_modifier;
 	}
+	Game_Clock::SetGameSpeedFactor(speed);
 
 	if (Main_Data::game_quit) {
 		reset_flag |= Main_Data::game_quit->ShouldQuit();
@@ -302,7 +313,9 @@ void Player::Update(bool update_scene) {
 
 	// Update Logic:
 	DisplayUi->ProcessEvents();
+}
 
+void Player::Update(bool update_scene) {
 	std::shared_ptr<Scene> old_instance = Scene::instance;
 
 	if (exit_flag) {
@@ -320,6 +333,12 @@ void Player::Update(bool update_scene) {
 
 	Audio().Update();
 	Input::Update();
+
+	// Game events can query full screen status and change their behavior, so this needs to
+	// be a game key and not a system key.
+	if (Input::IsTriggered(Input::TOGGLE_FULLSCREEN)) {
+		DisplayUi->ToggleFullscreen();
+	}
 
 	if (Main_Data::game_quit) {
 		Main_Data::game_quit->Update();
@@ -348,24 +367,13 @@ void Player::Update(bool update_scene) {
 
 void Player::Draw() {
 	Graphics::Update();
-
-	auto cur_time = Game_Clock::now();
-	if (cur_time < next_frame) {
-		Graphics::Draw(*DisplayUi->GetDisplaySurface());
-		DisplayUi->UpdateDisplay();
-	}
+	Graphics::Draw(*DisplayUi->GetDisplaySurface());
+	DisplayUi->UpdateDisplay();
 }
 
 void Player::IncFrame() {
 	++frames;
 	Game_System::IncFrameCounter();
-}
-
-void Player::FrameReset(Game_Clock::time_point now) {
-	// When next frame is expected
-	next_frame = now + Game_Clock::GetSimulationTimeStep();
-
-	Graphics::FrameReset(now);
 }
 
 int Player::GetFrames() {
@@ -463,6 +471,9 @@ void Player::ParseCommandLine(int argc, char *argv[]) {
 		else if (*it == "--fps-render-window") {
 			fps_render_window = true;
 		}
+		else if (*it == "--no-vsync") {
+			vsync = false;
+		}
 		else if (*it == "--enable-mouse") {
 			mouse_flag = true;
 		}
@@ -474,6 +485,14 @@ void Player::ParseCommandLine(int argc, char *argv[]) {
 		}
 		else if (*it == "hidetitle" || *it == "--hide-title") {
 			hide_title_flag = true;
+		}
+		else if (*it == "--fps-limit") {
+			++it;
+			if (it == args.end()) {
+				return;
+			}
+			auto fps =  atoi((*it).c_str());
+			SetTargetFps(fps);
 		}
 		else if (*it == "battletest") {
 			++it;
@@ -826,7 +845,7 @@ void Player::ResetGameObjects() {
 	Main_Data::game_player = std::make_unique<Game_Player>();
 	Main_Data::game_quit = std::make_unique<Game_Quit>();
 
-	FrameReset(Game_Clock::now());
+	Game_Clock::ResetFrame(Game_Clock::now());
 }
 
 void Player::LoadDatabase() {
@@ -901,6 +920,11 @@ static void OnMapSaveFileReady(FileRequestResult*) {
 void Player::LoadSavegame(const std::string& save_name) {
 	Output::Debug("Loading Save %s", FileFinder::GetPathInsidePath(Main_Data::GetSavePath(), save_name).c_str());
 	Game_System::BgmStop();
+
+	// We erase the screen now before loading the saved game. This prevents an issue where
+	// if the save game has a different system graphic, the load screen would change before
+	// transitioning out.
+	Transition::instance().InitErase(Transition::TransitionFadeOut, Scene::instance.get(), 6);
 
 	auto title_scene = Scene::Find(Scene::Title);
 	if (title_scene) {
@@ -1033,12 +1057,12 @@ std::string Player::GetEncoding() {
 			// When yes is a good encoding. Otherwise try the next ones.
 
 			escape_symbol = ReaderUtil::Recode("\\", enc);
-			escape_char = Utils::DecodeUTF32(Player::escape_symbol).front();
 			if (escape_symbol.empty()) {
 				// Bad encoding
 				Output::Debug("Bad encoding: %s. Trying next.", enc.c_str());
 				continue;
 			}
+			escape_char = Utils::DecodeUTF32(Player::escape_symbol).front();
 
 			if ((Data::system.title_name.empty() ||
 					!FileFinder::FindImage("Title", ReaderUtil::Recode(Data::system.title_name, enc)).empty()) &&
@@ -1071,14 +1095,6 @@ std::string Player::GetEncoding() {
 	}
 
 	return encoding;
-}
-
-int Player::GetSpeedModifier() {
-	if (Input::IsPressed(Input::FAST_FORWARD)) {
-		return Input::IsPressed(Input::PLUS) ? 10 : speed_modifier;
-	}
-
-	return 1;
 }
 
 void Player::PrintVersion() {
@@ -1114,6 +1130,11 @@ Options:
       --fullscreen         Start in fullscreen mode.
       --show-fps           Enable frames per second counter.
       --fps-render-window  Render the frames per second counter in windowed mode.
+      --fps-limit          Set a custom frames per second limit. The default is 60 FPS.
+                           Set to 0 to run with unlimited frames per second.
+                           This option is not supported on all platforms.
+      --no-vsync           Disable vertical sync and use fps-limit. Even without
+						   this option, vsync may not be supported on all platforms.
       --enable-mouse       Use mouse click for decision and scroll wheel for lists
       --enable-touch       Use one/two finger tap for decision/cancel
       --hide-title         Hide the title background image and center the
@@ -1195,4 +1216,12 @@ int Player::EngineVersion() {
 std::string Player::GetEngineVersion() {
 	if (EngineVersion() > 0) return std::to_string(EngineVersion());
 	return std::string();
+}
+
+void Player::SetTargetFps(int fps) {
+	if (fps == 0) {
+		frame_limit = {};
+	} else {
+		frame_limit = Game_Clock::TimeStepFromFps(fps);
+	}
 }

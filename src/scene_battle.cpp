@@ -72,6 +72,12 @@ Scene_Battle::~Scene_Battle() {
 }
 
 void Scene_Battle::Start() {
+	if (Scene::Find(Scene::Map) == nullptr) {
+		// Battletest mode - need to initialize screen
+		Main_Data::game_screen->InitGraphics();
+		Main_Data::game_pictures->InitGraphics();
+	}
+
 	// RPG_RT will cancel any active screen flash from the map, including
 	// wiping out all flash LSD chunks.
 	Main_Data::game_screen->FlashOnce(0, 0, 0, 0, 0);
@@ -93,6 +99,9 @@ void Scene_Battle::Start() {
 	Main_Data::game_enemyparty->Setup(troop_id);
 
 	Game_Battle::Init(troop_id);
+
+	// Update picture visibility
+	Main_Data::game_pictures->UpdateGraphics(true);
 
 	cycle = 0;
 	auto_battle = false;
@@ -465,7 +474,6 @@ void Scene_Battle::PrepareBattleAction(Game_Battler* battler) {
 	if (!battler->CanAct()) {
 		if (battler->GetBattleAlgorithm()->GetType() != Game_BattleAlgorithm::Type::NoMove) {
 			battler->SetBattleAlgorithm(std::make_shared<Game_BattleAlgorithm::NoMove>(battler));
-			battler->SetCharged(false);
 		}
 		return;
 	}
@@ -476,7 +484,6 @@ void Scene_Battle::PrepareBattleAction(Game_Battler* battler) {
 			Main_Data::game_party->GetRandomActiveBattler();
 
 		battler->SetBattleAlgorithm(std::make_shared<Game_BattleAlgorithm::Normal>(battler, target));
-		battler->SetCharged(false);
 		return;
 	}
 
@@ -486,7 +493,6 @@ void Scene_Battle::PrepareBattleAction(Game_Battler* battler) {
 			Main_Data::game_party->GetRandomActiveBattler();
 
 		battler->SetBattleAlgorithm(std::make_shared<Game_BattleAlgorithm::Normal>(battler, target));
-		battler->SetCharged(false);
 		return;
 	}
 
@@ -494,7 +500,6 @@ void Scene_Battle::PrepareBattleAction(Game_Battler* battler) {
 	if (battler->GetBattleAlgorithm()->GetSourceRestrictionWhenStarted() != RPG::State::Restriction_normal) {
 		if (battler->GetBattleAlgorithm()->GetType() != Game_BattleAlgorithm::Type::NoMove) {
 			battler->SetBattleAlgorithm(std::make_shared<Game_BattleAlgorithm::NoMove>(battler));
-			battler->SetCharged(false);
 		}
 		return;
 	}
@@ -502,7 +507,6 @@ void Scene_Battle::PrepareBattleAction(Game_Battler* battler) {
 	// If we can no longer perform the action (no more items, ran out of SP, etc..)
 	if (!battler->GetBattleAlgorithm()->ActionIsPossible()) {
 		battler->SetBattleAlgorithm(std::make_shared<Game_BattleAlgorithm::NoMove>(battler));
-		battler->SetCharged(false);
 	}
 }
 
